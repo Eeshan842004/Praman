@@ -1,0 +1,298 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# Praman — canonical cause taxonomy and emission matrix.
+#
+# THIS FILE IS THE CORE IP. Read the next paragraph before changing a number.
+#
+# A decline code does not identify a cause. It is a NOISY OBSERVATION of a
+# latent cause. This file encodes P(observed symbol | true cause, rail) — the
+# information asymmetry between issuer and merchant, written down as a
+# probability model.
+#
+# One table, two consumers:
+#   * the simulator (Phase 3) SAMPLES from it to generate labelled declines;
+#   * the attribution model READS it as a likelihood to invert into a posterior.
+# Because the same matrix generates and explains, the Bayes-optimal posterior is
+# analytically computable — which is what makes the Information Capture Ratio
+# (§2.6) a real number rather than a rhetorical one.
+#
+# Nine causes, deliberately few. Each must map to a DISTINCT intervention. A
+# taxonomy with forty buckets that all mean "retry later" is analytics, not a
+# decision system.
+# ═══════════════════════════════════════════════════════════════════════════
+version: 1
+
+# ── Cause metadata ─────────────────────────────────────────────────────────
+causes:
+  INSUFFICIENT_FUNDS:
+    class: soft
+    default_tier: T1
+    description: Payer lacked balance or available credit at authorisation time.
+  ISSUER_RISK_BLOCK:
+    class: soft
+    default_tier: T2
+    description: Issuer declined on its own risk/fraud score, not on funds.
+  VELOCITY_LIMIT:
+    class: soft
+    default_tier: T1
+    description: Per-transaction, daily, or frequency ceiling reached.
+  AUTH_FAILURE:
+    class: soft
+    default_tier: T3
+    description: Authentication did not complete — OTP, 3DS, PIN, or MPIN.
+  TECHNICAL_DECLINE:
+    class: soft
+    default_tier: T1
+    description: Issuer, network, or gateway was unavailable or errored.
+  EXPIRED_OR_INVALID_CREDENTIAL:
+    class: hard
+    default_tier: T3
+    description: Card expired, PAN invalid, or VPA unresolvable. Needs new data.
+  INSTRUMENT_DISABLED:
+    class: hard
+    default_tier: T3
+    description: Instrument blocked or not enabled for this transaction type.
+  LOST_STOLEN_FRAUD:
+    class: hard
+    default_tier: T0
+    description: Reported lost, stolen, or confirmed fraudulent. Never retry.
+  MANDATE_TERMINATED:
+    class: hard
+    default_tier: T0
+    description: Recurring authority revoked or cancelled. Never retry.
+
+# ── Regional cause priors ──────────────────────────────────────────────────
+# Priors are the free parameter; emissions are pinned by literature. They are
+# tuned so that pushing them through the emission matrix reproduces published
+# posteriors — notably Laumans' "approximately half of 05 is insufficient funds
+# in disguise", which lands at P(NSF | 05, IN) ~= 0.56.
+#
+# India skews toward AUTH_FAILURE (OTP/AFA mandates) and TECHNICAL_DECLINE
+# (bank downtime); the US skews toward EXPIRED_OR_INVALID_CREDENTIAL
+# (card-on-file heavy) — Ethoca: bad data is roughly 1 in 5 declines.
+priors:
+  IN:
+    INSUFFICIENT_FUNDS: 0.26
+    ISSUER_RISK_BLOCK: 0.16
+    VELOCITY_LIMIT: 0.08
+    AUTH_FAILURE: 0.18
+    TECHNICAL_DECLINE: 0.16
+    EXPIRED_OR_INVALID_CREDENTIAL: 0.09
+    INSTRUMENT_DISABLED: 0.05
+    LOST_STOLEN_FRAUD: 0.01
+    MANDATE_TERMINATED: 0.01
+  US:
+    INSUFFICIENT_FUNDS: 0.34
+    ISSUER_RISK_BLOCK: 0.18
+    VELOCITY_LIMIT: 0.05
+    AUTH_FAILURE: 0.06
+    TECHNICAL_DECLINE: 0.05
+    EXPIRED_OR_INVALID_CREDENTIAL: 0.24
+    INSTRUMENT_DISABLED: 0.05
+    LOST_STOLEN_FRAUD: 0.02
+    MANDATE_TERMINATED: 0.01
+
+# ═══════════════════════════════════════════════════════════════════════════
+# EMISSIONS — P(observed symbol | cause, rail). Each row sums to exactly 1.0.
+#
+# Note that 05 appears under EVERY card cause. That is not sloppiness; it is
+# the entire problem. "Do Not Honor" is a catch-all, and its presence in all
+# nine rows is what makes the posterior genuinely ambiguous.
+#
+# Four values are load-bearing and traceable to published analysis:
+#   P(05 | INSUFFICIENT_FUNDS) = 0.50  — Laumans (Adyen)
+#   P(51 | INSUFFICIENT_FUNDS) = 0.50  — Laumans (Adyen)
+#   P(05 | ISSUER_RISK_BLOCK)  = 0.30  — Visa remaps some CNP fraud codes to 05
+#   P(05 | VELOCITY_LIMIT)     = 0.12
+# ═══════════════════════════════════════════════════════════════════════════
+emissions:
+  card:
+    INSUFFICIENT_FUNDS:
+      "05": 0.50   # Laumans: half of all NSF declines surface as Do Not Honor
+      "51": 0.50   # the honest code
+    ISSUER_RISK_BLOCK:
+      "05": 0.30
+      "59": 0.35   # suspected fraud
+      "62": 0.15   # restricted card
+      "63": 0.12   # security violation
+      "07": 0.08   # pickup card, fraud
+    VELOCITY_LIMIT:
+      "05": 0.12
+      "65": 0.43   # exceeds withdrawal frequency
+      "61": 0.30   # exceeds withdrawal amount limit
+      "51": 0.05   # over credit limit reads as insufficient funds
+      "12": 0.10   # invalid transaction
+    AUTH_FAILURE:
+      "05": 0.12
+      "55": 0.25   # incorrect PIN
+      "82": 0.22   # CVV/CAM failure
+      "1A": 0.22   # strong customer authentication required
+      "63": 0.09
+      "17": 0.10   # customer cancellation
+    TECHNICAL_DECLINE:
+      "05": 0.08
+      "91": 0.40   # issuer or switch inoperative
+      "96": 0.25   # system malfunction
+      "06": 0.15   # error
+      "92": 0.12   # routing error
+    EXPIRED_OR_INVALID_CREDENTIAL:
+      "05": 0.05
+      "54": 0.55   # expired card
+      "14": 0.30   # invalid card number
+      "15": 0.10   # no such issuer
+    INSTRUMENT_DISABLED:
+      "05": 0.08
+      "57": 0.40   # transaction not permitted to cardholder
+      "58": 0.20   # transaction not permitted at terminal
+      "62": 0.20   # restricted card
+      "39": 0.10   # no credit account
+      "51": 0.02
+    LOST_STOLEN_FRAUD:
+      "05": 0.05
+      "41": 0.35   # lost card
+      "43": 0.30   # stolen card
+      "04": 0.15   # pickup card
+      "07": 0.15   # pickup card, fraud
+    MANDATE_TERMINATED:
+      "05": 0.10
+      "21": 0.45   # no action taken / recurring cancelled
+      "02": 0.25   # stop one recurring payment
+      "03": 0.20   # stop all recurring payments
+
+  # ── UPI / NPCI ───────────────────────────────────────────────────────────
+  # NPCI codes carry far more signal than card DE-39 and, uniquely, ship with
+  # explicit machine-readable retry semantics. This is the India-first moat:
+  # Z9 means insufficient funds and essentially nothing else, where 05 means
+  # anything at all.
+  #
+  # PROVENANCE: these mappings follow the widely-published NPCI UPI Error and
+  # Response Codes tables. The blueprint's canonical source (NPCI v2.9 PDF) is
+  # cached locally and should be diffed against this block before the pitch.
+  upi:
+    INSUFFICIENT_FUNDS:
+      "Z9": 0.92   # insufficient funds — unambiguous
+      "U30": 0.08  # debit failed
+    ISSUER_RISK_BLOCK:
+      "U16": 0.55  # risk threshold exceeded
+      "Z7": 0.25   # too many transactions
+      "U30": 0.20
+    VELOCITY_LIMIT:
+      "Z8": 0.50   # per-transaction limit exceeded
+      "Z7": 0.42
+      "U30": 0.08
+    AUTH_FAILURE:
+      "ZM": 0.40   # invalid MPIN
+      "U69": 0.35  # collect request expired
+      "ZA": 0.25   # declined by customer
+    TECHNICAL_DECLINE:
+      "U28": 0.40  # payee bank unavailable
+      "U30": 0.35
+      "U17": 0.25
+    EXPIRED_OR_INVALID_CREDENTIAL:
+      "U17": 0.60  # payee PSP not registered / VPA unresolvable
+      "U30": 0.40
+    INSTRUMENT_DISABLED:
+      "U16": 0.35
+      "U30": 0.42
+      "Z7": 0.20
+      "Z9": 0.03
+    LOST_STOLEN_FRAUD:
+      "U16": 0.70
+      "Z7": 0.30
+    MANDATE_TERMINATED:
+      "ZA": 0.60
+      "U30": 0.40
+
+# ═══════════════════════════════════════════════════════════════════════════
+# SIDE SIGNALS — P(signal | cause), treated as conditionally independent
+# channels given the cause (naive Bayes across channels).
+#
+# This is Laumans' own advice made computable: "use CVC response, card expiry
+# and AVS as clues". A 05 arriving with a PASSING CVV and a VALID expiry is far
+# more likely to be insufficient funds than a credential problem — the card data
+# was demonstrably correct, so what failed was the money.
+# ═══════════════════════════════════════════════════════════════════════════
+side_signals:
+  cvv_result:
+    INSUFFICIENT_FUNDS:            {pass: 0.90, fail: 0.03, not_checked: 0.07}
+    ISSUER_RISK_BLOCK:             {pass: 0.55, fail: 0.35, not_checked: 0.10}
+    VELOCITY_LIMIT:                {pass: 0.88, fail: 0.05, not_checked: 0.07}
+    AUTH_FAILURE:                  {pass: 0.35, fail: 0.55, not_checked: 0.10}
+    TECHNICAL_DECLINE:             {pass: 0.70, fail: 0.05, not_checked: 0.25}
+    EXPIRED_OR_INVALID_CREDENTIAL: {pass: 0.25, fail: 0.65, not_checked: 0.10}
+    INSTRUMENT_DISABLED:           {pass: 0.85, fail: 0.07, not_checked: 0.08}
+    LOST_STOLEN_FRAUD:             {pass: 0.45, fail: 0.45, not_checked: 0.10}
+    MANDATE_TERMINATED:            {pass: 0.80, fail: 0.05, not_checked: 0.15}
+
+  expiry_valid:
+    INSUFFICIENT_FUNDS:            {"true": 0.98, "false": 0.02}
+    ISSUER_RISK_BLOCK:             {"true": 0.97, "false": 0.03}
+    VELOCITY_LIMIT:                {"true": 0.98, "false": 0.02}
+    AUTH_FAILURE:                  {"true": 0.96, "false": 0.04}
+    TECHNICAL_DECLINE:             {"true": 0.98, "false": 0.02}
+    EXPIRED_OR_INVALID_CREDENTIAL: {"true": 0.15, "false": 0.85}
+    INSTRUMENT_DISABLED:           {"true": 0.94, "false": 0.06}
+    LOST_STOLEN_FRAUD:             {"true": 0.95, "false": 0.05}
+    MANDATE_TERMINATED:            {"true": 0.97, "false": 0.03}
+
+  avs_result:
+    INSUFFICIENT_FUNDS:            {pass: 0.85, fail: 0.08, not_checked: 0.07}
+    ISSUER_RISK_BLOCK:             {pass: 0.50, fail: 0.40, not_checked: 0.10}
+    VELOCITY_LIMIT:                {pass: 0.85, fail: 0.08, not_checked: 0.07}
+    AUTH_FAILURE:                  {pass: 0.70, fail: 0.20, not_checked: 0.10}
+    TECHNICAL_DECLINE:             {pass: 0.65, fail: 0.10, not_checked: 0.25}
+    EXPIRED_OR_INVALID_CREDENTIAL: {pass: 0.45, fail: 0.45, not_checked: 0.10}
+    INSTRUMENT_DISABLED:           {pass: 0.80, fail: 0.12, not_checked: 0.08}
+    LOST_STOLEN_FRAUD:             {pass: 0.35, fail: 0.55, not_checked: 0.10}
+    MANDATE_TERMINATED:            {pass: 0.82, fail: 0.06, not_checked: 0.12}
+
+# ═══════════════════════════════════════════════════════════════════════════
+# SYMBOL METADATA — orthogonal signals carried ALONGSIDE the cause, never
+# folded into it (§3.2). These are POLICY inputs, not evidence about the cause:
+# OPA consumes them directly, and collapsing them into the cause would destroy
+# the information the kernel needs to decide legality.
+# ═══════════════════════════════════════════════════════════════════════════
+symbol_meta:
+  # Visa Decline Category: 1 = never retry, 2 = wait and retry,
+  # 3 = correct and retry, 4 = later addition.
+  "05": {network_category: 2}
+  "51": {network_category: 2}
+  "61": {network_category: 2}
+  "65": {network_category: 2}
+  "91": {network_category: 2}
+  "96": {network_category: 2}
+  "06": {network_category: 2}
+  "92": {network_category: 2}
+  "12": {network_category: 3}
+  "14": {network_category: 3}
+  "15": {network_category: 3}
+  "54": {network_category: 3}
+  "55": {network_category: 3}
+  "82": {network_category: 3}
+  "1A": {network_category: 3}
+  "17": {network_category: 3}
+  "04": {network_category: 1}
+  "07": {network_category: 1}
+  "39": {network_category: 1}
+  "41": {network_category: 1}
+  "43": {network_category: 1}
+  "57": {network_category: 1}
+  "58": {network_category: 1}
+  "59": {network_category: 1}
+  "62": {network_category: 1}
+  "63": {network_category: 1}
+  "21": {network_category: 1, merchant_advice_code: "21"}
+  "02": {network_category: 1}
+  "03": {network_category: 1, merchant_advice_code: "03"}
+
+  # NPCI retry semantics — the field card rails simply do not provide.
+  "Z9": {npci_retry_remark: reinitiate_new_crn}
+  "Z8": {npci_retry_remark: reinitiate_new_crn}
+  "Z7": {npci_retry_remark: reinitiate_new_crn}
+  "ZM": {npci_retry_remark: reinitiate_new_crn}
+  "U69": {npci_retry_remark: reinitiate_new_crn}
+  "U28": {npci_retry_remark: reinitiate_same_crn}
+  "U30": {npci_retry_remark: reinitiate_same_crn}
+  "U54": {npci_retry_remark: check_status}
+  "U16": {npci_retry_remark: do_not_reinitiate}
+  "U17": {npci_retry_remark: do_not_reinitiate}
+  "ZA": {npci_retry_remark: do_not_reinitiate}
