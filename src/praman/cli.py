@@ -11,16 +11,27 @@ decorative.
 from __future__ import annotations
 
 import argparse
+import math
 import sqlite3
 import sys
 from collections import Counter
 from pathlib import Path
 
 from praman.ledger.chain import FIELDS, connect, verify
+from praman.measure.harness import validate_estimator
 
 EXIT_OK = 0
 EXIT_FAIL = 1
 EXIT_USAGE = 2
+
+# Nominal coverage is 95%. Outside this band the interval is either
+# overconfident or useless, and nothing downstream of it can be believed.
+COVERAGE_FLOOR = 0.92
+COVERAGE_CEILING = 0.97
+
+# Below this, the Monte Carlo SE of the coverage estimate exceeds the width of
+# the band, so the gate would be measuring its own noise.
+MIN_WORLDS_TO_JUDGE = 100
 
 
 def _cmd_verify(args: argparse.Namespace) -> int:
@@ -120,6 +131,52 @@ def _cmd_tamper(args: argparse.Namespace) -> int:
         conn.close()
 
 
+def _cmd_validate_estimator(args: argparse.Namespace) -> int:
+    """Score the estimator against worlds whose true effect is known and sealed.
+
+    This is a gate, not a report. We do not claim to have recovered money; we
+    claim our estimator recovers the truth, and this is the check that earns the
+    claim. If coverage drifts out of band the exit code says so.
+    """
+    report = validate_estimator(
+        n_worlds=args.worlds,
+        holdout_pct=args.holdout_pct,
+        n_boot=args.boot,
+        seed0=args.seed,
+    )
+    print(report.render())
+    print()
+
+    # Coverage is itself estimated from a finite number of worlds, so it carries
+    # Monte Carlo error. Reporting the verdict without that error would be the
+    # same overconfidence this harness exists to catch.
+    mc_se = math.sqrt(0.95 * 0.05 / report.n_worlds) if report.n_worlds else float("inf")
+    print(f"  Monte Carlo SE of coverage .  {mc_se:.1%}  ({report.n_worlds} worlds)")
+
+    if report.n_worlds < MIN_WORLDS_TO_JUDGE:
+        print(
+            f"! only {report.n_worlds} worlds: the Monte Carlo SE ({mc_se:.1%}) is "
+            f"comparable to the band itself, so this run cannot judge the "
+            f"estimator. Use at least {MIN_WORLDS_TO_JUDGE}."
+        )
+        return EXIT_OK
+
+    if not COVERAGE_FLOOR <= report.coverage <= COVERAGE_CEILING:
+        print(
+            f"x coverage {report.coverage:.1%} is outside "
+            f"[{COVERAGE_FLOOR:.0%}, {COVERAGE_CEILING:.0%}] "
+            "-- the confidence interval is wrong"
+        )
+        return EXIT_FAIL
+
+    print(
+        f"+ coverage {report.coverage:.1%} is nominal . "
+        f"bias {report.mean_bias_pct:+.1f}% . "
+        f"CUPED -{report.mean_variance_reduction:.0%} variance"
+    )
+    return EXIT_OK
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="praman",
@@ -136,6 +193,16 @@ def build_parser() -> argparse.ArgumentParser:
     t.add_argument("--entry", type=int, required=True)
     t.add_argument("--set", required=True, metavar="FIELD=VALUE")
     t.set_defaults(func=_cmd_tamper)
+
+    e = sub.add_parser(
+        "validate-estimator",
+        help="score the ATE estimator against worlds with a known true effect",
+    )
+    e.add_argument("--worlds", type=int, default=200)
+    e.add_argument("--boot", type=int, default=2000)
+    e.add_argument("--holdout-pct", type=int, default=10)
+    e.add_argument("--seed", type=int, default=9000)
+    e.set_defaults(func=_cmd_validate_estimator)
 
     return parser
 

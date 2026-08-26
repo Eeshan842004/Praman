@@ -103,13 +103,13 @@ configuration, not constants.
 | Phase | Deliverable | State |
 |---|---|---|
 | 0 | Foundations, policy kernel, toolchain | ✅ |
-| 1 | Ingest + canonical taxonomy | ◻ |
-| 2 | Ledger + replay attestation | ◻ |
+| 1 | Canonical taxonomy + likelihood matrix | ✅ (ingest pending Razorpay keys) |
+| 2 | Ledger + replay attestation | ✅ |
 | 3 | Causal simulator with sealed potential outcomes | ◻ |
 | 4 | Attribution + Information Capture Ratio | ◻ |
 | 5 | Policy bundle attestation | ◻ |
 | 6 | Orchestrator + logical clock | ◻ |
-| 7 | Estimator validation harness | ◻ |
+| 7 | Estimator validation harness | ✅ (toy world; real simulator lands Phase 3) |
 | 8 | Dashboard + explanations | ◻ |
 
 ## Honesty

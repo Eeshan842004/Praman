@@ -49,6 +49,7 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 addopts = "-q --strict-markers"
 markers = [
+    "slow: long-running statistical validation",
     "integration: requires the OPA sidecar to be running",
 ]
 

@@ -140,3 +140,51 @@ def test_unknown_command_exits_nonzero(capsys):
     with pytest.raises(SystemExit) as exc:
         main(["definitely-not-a-command"])
     assert exc.value.code != 0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# validate-estimator
+# ─────────────────────────────────────────────────────────────────────────────
+def test_validate_estimator_reports_coverage_and_exits_zero(capsys):
+    """200 worlds, not fewer.
+
+    The [0.92, 0.97] band is roughly +/-2 Monte Carlo standard errors at 200
+    worlds. At 40 worlds SE is ~3.4%, so the band would reject a *perfect*
+    estimator about a third of the time -- the gate would be measuring its own
+    noise. Anything cheaper than 200 is not a test, it is a coin flip.
+    """
+    rc = main(["validate-estimator", "--worlds", "200", "--boot", "800"])
+    out = capsys.readouterr().out
+    assert rc == 0, out
+    assert "coverage" in out.lower()
+    assert "ESTIMATOR VALIDATION" in out
+
+
+def test_validate_estimator_warns_when_too_few_worlds_to_judge(capsys):
+    """Below ~100 worlds the gate cannot distinguish a bad estimator from noise,
+    and it must say so rather than return a confident verdict."""
+    main(["validate-estimator", "--worlds", "30", "--boot", "200"])
+    assert "monte carlo" in capsys.readouterr().out.lower()
+
+
+def test_validate_estimator_fails_when_coverage_is_off(capsys, monkeypatch):
+    """The command is a GATE, not a report. If the interval stops covering, the
+    exit code has to say so -- otherwise CI would happily ship broken statistics."""
+    import praman.cli as cli
+    from praman.measure.harness import ValidationReport
+
+    broken = ValidationReport(
+        n_worlds=200,
+        holdout_pct=10,
+        coverage=0.55,
+        mean_bias_pct=0.2,
+        rmse=1.0,
+        mean_ci_width=2.0,
+        mean_variance_reduction=0.4,
+        naive_mean_bias_pct=90.0,
+        naive_coverage=0.0,
+        mean_true_ate=8.0,
+    )
+    monkeypatch.setattr(cli, "validate_estimator", lambda **_: broken)
+    assert main(["validate-estimator", "--worlds", "200"]) != 0
+    assert "coverage" in capsys.readouterr().out.lower()
