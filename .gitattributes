@@ -1,0 +1,32 @@
+# Line endings are a CORRECTNESS concern in this repo, not a style concern.
+#
+# The policy bundle revision is sha256 over policy file CONTENT (law #6), and the
+# ledger's hash chain is sha256 over canonical bytes (law #5). If Windows checks
+# out CRLF and Linux CI checks out LF, the same commit produces two different
+# revisions and replay attestation fails on legitimate, uncorrupted data.
+#
+# Force LF everywhere, in the working tree as well as the index.
+* text=auto eol=lf
+
+# Policy inputs are hashed. Never let anything reinterpret them.
+policy/**       text eol=lf
+*.rego          text eol=lf
+*.json          text eol=lf
+
+*.py            text eol=lf
+*.sh            text eol=lf
+*.yml           text eol=lf
+*.yaml          text eol=lf
+*.toml          text eol=lf
+*.md            text eol=lf
+
+# PowerShell is authored ASCII-only (see scripts/dev.ps1 header) and LF-safe.
+*.ps1           text eol=lf
+
+# Committed evidence and binaries: never touched.
+*.tar.gz        binary
+*.db            binary
+*.png           binary
+*.pkl           binary
+*.joblib        binary
+uv.lock         text eol=lf -diff
