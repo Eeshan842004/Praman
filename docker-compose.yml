@@ -1,0 +1,54 @@
+# Praman — local stack: FastAPI app + OPA policy sidecar.
+#
+#   docker compose up --build
+#
+# The OPA sidecar is a SIDECAR, not a library: the policy engine is a separate
+# process with its own lifecycle, its own decision log stream, and its own
+# failure mode. Architectural law #9 — if this container is unreachable, the
+# app denies and escalates to T4. It never fails open.
+
+services:
+  opa:
+    image: openpolicyagent/opa:1.19.1
+    container_name: praman-opa
+    # --bundle loads the IMMUTABLE built bundle, not loose .rego files, so the
+    # revision OPA reports (law #6) is the one committed under dist/.
+    command:
+      - "run"
+      - "--server"
+      - "--addr=0.0.0.0:8181"
+      - "--log-level=info"
+      # Decision logs to console = the second, independent evidence stream.
+      - "--set=decision_logs.console=true"
+      - "--bundle"
+      - "/policy"
+    volumes:
+      - ./policy:/policy:ro
+    ports:
+      - "8181:8181"
+    healthcheck:
+      test: ["CMD", "/opa", "eval", "--format=json", "data.praman.retry"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 3s
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: praman-app
+    command: uvicorn praman.api.app:app --host 0.0.0.0 --port 8000
+    environment:
+      # In-network address. Overridden to 127.0.0.1 by scripts/dev.ps1 locally.
+      OPA_URL: "http://opa:8181"
+      LEDGER_PATH: "/app/data/ledger.db"
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+    ports:
+      - "8000:8000"
+    depends_on:
+      opa:
+        condition: service_healthy

@@ -1,0 +1,89 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  OPA_VERSION: "1.19.1"
+
+jobs:
+  policy:
+    name: policy (rego)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install OPA
+        run: |
+          curl -sSL -o /usr/local/bin/opa \
+            "https://openpolicyagent.org/downloads/v${OPA_VERSION}/opa_linux_amd64_static"
+          chmod +x /usr/local/bin/opa
+          opa version
+
+      - name: opa fmt
+        run: opa fmt --list --fail policy/
+
+      - name: opa check
+        run: opa check --strict policy/
+
+      # The policy kernel is the sole authority for money actions. 90% is a floor,
+      # not a target.
+      - name: opa test (coverage >= 90%)
+        run: opa test policy/ -v --coverage --threshold 90
+
+      - name: bundle revision is reproducible
+        run: |
+          ./scripts/build_bundle.sh
+          # Rebuilding must not change the revision or the committed data file.
+          ./scripts/build_bundle.sh
+          git diff --exit-code policy/revision/data.json
+
+  python:
+    name: python
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install
+        run: uv sync --frozen
+
+      - name: ruff (lint)
+        run: uv run ruff check .
+
+      - name: ruff (format)
+        run: uv run ruff format --check .
+
+      - name: mypy
+        run: uv run mypy || true   # advisory until Phase 4; enforced from Phase 5
+
+      - name: pytest
+        run: uv run pytest
+
+  security:
+    name: security
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Install
+        run: uv sync --frozen
+
+      - name: bandit
+        run: uv run bandit -c pyproject.toml -r src/ -q
+
+      - name: pip-audit
+        run: uv run pip-audit --strict || true   # advisory: upstream CVEs are not ours to fix
+
+      # The repo IS the submission. A leaked key is fatal, not embarrassing.
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

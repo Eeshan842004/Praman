@@ -1,0 +1,11 @@
+{
+  "visa_cap": 15,
+  "payment_cap": 3,
+  "bin_hourly_cap": 10,
+  "nudge_cap_7d": 2,
+  "afa_threshold_paise": 1500000,
+  "pre_debit_notice_ms": 86400000,
+  "npci_blackout_start_hour": 10,
+  "npci_blackout_end_hour": 13,
+  "confidence_floor": "0.400000"
+}

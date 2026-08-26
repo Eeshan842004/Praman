@@ -1,0 +1,79 @@
+[project]
+name = "praman"
+version = "0.1.0"
+description = "A provable revenue-recovery kernel for Indian payments."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "duckdb>=1.5.5",
+    "fastapi>=0.141.1",
+    "google-genai>=2.20.0",
+    "httpx>=0.28.1",
+    "jinja2>=3.1.6",
+    "lightgbm>=4.7.0",
+    "numpy>=2.5.2",
+    "pandas>=3.0.5",
+    "prometheus-client>=0.26.0",
+    "pydantic>=2.13.4",
+    "pydantic-settings>=2.15.0",
+    "pyyaml>=6.0.3",
+    "scikit-learn>=1.9.0",
+    "scipy>=1.18.1",
+    "shap>=0.52.0",
+    "structlog>=26.1.0",
+    "uvicorn[standard]>=0.52.4",
+]
+
+[project.scripts]
+praman = "praman.cli:main"
+
+[dependency-groups]
+dev = [
+    "bandit>=1.9.4",
+    "hypothesis>=6.165.10",
+    "mypy>=2.3.1",
+    "pip-audit>=2.10.1",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "ruff>=0.16.4",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/praman"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-q --strict-markers"
+markers = [
+    "integration: requires the OPA sidecar to be running",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "SIM", "RUF", "S"]
+# S101 assert: pytest needs it. S608 SQL string building: our ledger DDL is
+# static and column names come from a frozen module constant, never user input.
+ignore = ["S101", "S608"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S105", "S106"]
+
+[tool.mypy]
+python_version = "3.12"
+packages = ["praman"]
+mypy_path = "src"
+strict_optional = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+disallow_untyped_defs = false
+
+[tool.bandit]
+exclude_dirs = ["tests", ".venv"]
