@@ -23,21 +23,52 @@ from praman.metrics import LEDGER_ENTRIES, LEDGER_FORK_ATTEMPTS
 
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 
-# Frozen. The hash covers exactly these columns, in this order. Changing this
-# tuple invalidates every existing ledger, so it is append-at-the-end only.
+# Frozen. The hash covers exactly these columns. Changing this tuple invalidates
+# every existing ledger, so it is a MIGRATION (bump LEDGER_SCHEMA_VERSION),
+# never an edit.
+#
+# Canonical JSON sorts keys, so this order does not affect the hash -- it only
+# has to stay consistent between INSERT and replay.
 FIELDS: tuple[str, ...] = (
+    "schema_version",
+    "entry_type",
+    # envelope
     "ts_ms",
+    "experiment_id",
+    "holdout_pct",
     "payment_id",
     "customer_id",
     "arm",
+    # decision
+    "attempt_no",
+    "rail",
+    "symbol",
+    "region",
     "cause",
     "posterior",
+    "posterior_vector",
+    "attribution_source",
+    "attribution_version",
     "tier",
+    "tier_evaluations",
     "opa_allow",
     "deny_reasons",
+    "policy_input_json",
     "bundle_revision",
     "decision_id",
     "amount_paise",
+    "cuped_covariate",
+    "covariate_asof_ms",
+    "scheduled_for_ms",
+    # actuation
+    "decision_seq",
+    "executed",
+    "actuation_result",
+    # outcome
+    "recovered",
+    "recovered_at_ms",
+    "recovered_amount_paise",
+    "outcome_source",
     "payload_json",
 )
 

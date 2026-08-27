@@ -26,7 +26,9 @@ from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 from praman.ledger.canonical import GENESIS, canonical_bytes, prob_str
-from praman.ledger.chain import append, connect, head_hash, verify
+from praman.ledger.chain import FIELDS, append, connect, head_hash, verify
+from praman.ledger.records import DecisionRecord
+from praman.taxonomy import CAUSES
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -88,21 +90,35 @@ def test_prob_str_is_six_dp_and_round_trips_stably():
 # Fixtures
 # ─────────────────────────────────────────────────────────────────────────────
 def _row(n: int = 1) -> dict:
-    return {
-        "ts_ms": 1787000000000 + n,
-        "payment_id": f"pay_TEST{n:06d}",
-        "customer_id": f"cust_{n % 37:04d}",
-        "arm": "treatment" if n % 10 else "holdout",
-        "cause": "INSUFFICIENT_FUNDS",
-        "posterior": prob_str(0.56 + (n % 5) / 1000),
-        "tier": "T1",
-        "opa_allow": 1,
-        "deny_reasons": "[]",
-        "bundle_revision": "4ca4787c0a1eea75",
-        "decision_id": f"dec_{n:06d}",
-        "amount_paise": 100000 + n,
-        "payload_json": '{"redacted":true}',
-    }
+    """A realistic DECISION row, built through the record type so these tests
+    exercise the same serialisation path production uses."""
+    return DecisionRecord(
+        ts_ms=1787000000000 + n,
+        experiment_id="praman-v1",
+        holdout_pct=10,
+        payment_id=f"pay_TEST{n:06d}",
+        customer_id=f"cust_{n % 37:04d}",
+        arm="treatment" if n % 10 else "holdout",
+        attempt_no=1,
+        rail="card",
+        symbol="05",
+        region="IN",
+        cause="INSUFFICIENT_FUNDS",
+        posterior=dict.fromkeys(CAUSES, 1 / 9),
+        attribution_source="heuristic",
+        attribution_version="taxonomy-v1",
+        tier="T1",
+        tier_evaluations={"T1": []},
+        opa_allow=True,
+        deny_reasons=[],
+        policy_input={"attempts_30d": n % 5},
+        bundle_revision="4ca4787c0a1eea75",
+        decision_id=f"dec_{n:06d}",
+        amount_paise=100000 + n,
+        cuped_covariate=0.5,
+        covariate_asof_ms=1786900000000,
+        payload={"redacted": True},
+    ).to_row()
 
 
 @pytest.fixture
@@ -166,29 +182,18 @@ def test_duplicate_prev_hash_is_rejected(db):
     """UNIQUE(prev_hash) turns a fork into a constraint violation at insert time
     rather than silent corruption discovered a week later."""
     append(db, _row(1))
-    prev = GENESIS
-    with pytest.raises(sqlite3.IntegrityError):
+
+    # A COMPLETE, otherwise-valid row that merely reuses the genesis prev_hash.
+    # Building it from FIELDS matters: an under-specified INSERT would trip a
+    # NOT NULL constraint instead and the test would pass for the wrong reason,
+    # silently no longer testing fork rejection at all.
+    row = _row(2)
+    cols = ",".join(FIELDS)
+    marks = ",".join("?" * (len(FIELDS) + 2))
+    with pytest.raises(sqlite3.IntegrityError, match="prev_hash"):
         db.execute(
-            "INSERT INTO ledger (ts_ms,payment_id,customer_id,arm,cause,posterior,tier,"
-            "opa_allow,deny_reasons,bundle_revision,decision_id,amount_paise,payload_json,"
-            "prev_hash,entry_hash) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (
-                1,
-                "p",
-                "c",
-                "treatment",
-                "X",
-                "0.500000",
-                "T1",
-                1,
-                "[]",
-                "r",
-                "d",
-                1,
-                "{}",
-                prev,
-                "deadbeef" * 8,
-            ),
+            f"INSERT INTO ledger ({cols},prev_hash,entry_hash) VALUES ({marks})",
+            (*(row[k] for k in FIELDS), GENESIS, "deadbeef" * 8),
         )
 
 
@@ -282,21 +287,33 @@ def test_concurrent_appends_never_fork_the_chain(tmp_path: Path, n_writers: int)
 # Property-based: no sequence of valid entries can produce an invalid chain
 # ─────────────────────────────────────────────────────────────────────────────
 _ledger_row = st.builds(
-    lambda pid, cid, amt, ts, tier, allow: {
-        "ts_ms": ts,
-        "payment_id": pid,
-        "customer_id": cid,
-        "arm": "treatment",
-        "cause": "INSUFFICIENT_FUNDS",
-        "posterior": prob_str(0.5),
-        "tier": tier,
-        "opa_allow": allow,
-        "deny_reasons": "[]",
-        "bundle_revision": "rev",
-        "decision_id": pid,
-        "amount_paise": amt,
-        "payload_json": "{}",
-    },
+    lambda pid, cid, amt, ts, tier, allow: DecisionRecord(
+        ts_ms=ts,
+        experiment_id="praman-v1",
+        holdout_pct=10,
+        payment_id=pid,
+        customer_id=cid,
+        arm="treatment",
+        attempt_no=1,
+        rail="card",
+        symbol="05",
+        region="IN",
+        cause="INSUFFICIENT_FUNDS",
+        posterior=dict.fromkeys(CAUSES, 1 / 9),
+        attribution_source="heuristic",
+        attribution_version="taxonomy-v1",
+        tier=tier,
+        tier_evaluations={tier: []},
+        opa_allow=bool(allow),
+        deny_reasons=[],
+        policy_input={},
+        bundle_revision="rev",
+        decision_id=pid,
+        amount_paise=amt,
+        cuped_covariate=0.5,
+        covariate_asof_ms=0,
+        payload={},
+    ).to_row(),
     pid=st.text(min_size=1, max_size=24),
     cid=st.text(min_size=1, max_size=24),
     amt=st.integers(min_value=0, max_value=10**12),

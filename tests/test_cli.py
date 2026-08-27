@@ -14,8 +14,9 @@ from pathlib import Path
 import pytest
 
 from praman.cli import main
-from praman.ledger.canonical import prob_str
 from praman.ledger.chain import append, connect
+from praman.ledger.records import DecisionRecord
+from praman.taxonomy import CAUSES
 
 
 def _seed(path: Path, n: int = 25) -> None:
@@ -24,21 +25,33 @@ def _seed(path: Path, n: int = 25) -> None:
         for i in range(1, n + 1):
             append(
                 conn,
-                {
-                    "ts_ms": 1787000000000 + i,
-                    "payment_id": f"pay_TEST{i:06d}",
-                    "customer_id": f"cust_{i % 7:04d}",
-                    "arm": "holdout" if i % 10 == 0 else "treatment",
-                    "cause": "INSUFFICIENT_FUNDS",
-                    "posterior": prob_str(0.56),
-                    "tier": "T1",
-                    "opa_allow": 1,
-                    "deny_reasons": "[]",
-                    "bundle_revision": "4ca4787c0a1eea75",
-                    "decision_id": f"dec_{i:06d}",
-                    "amount_paise": 100000 + i,
-                    "payload_json": '{"redacted":true}',
-                },
+                DecisionRecord(
+                    ts_ms=1787000000000 + i,
+                    experiment_id="praman-v1",
+                    holdout_pct=10,
+                    payment_id=f"pay_TEST{i:06d}",
+                    customer_id=f"cust_{i % 7:04d}",
+                    arm="holdout" if i % 10 == 0 else "treatment",
+                    attempt_no=1,
+                    rail="card",
+                    symbol="05",
+                    region="IN",
+                    cause="INSUFFICIENT_FUNDS",
+                    posterior=dict.fromkeys(CAUSES, 1 / 9),
+                    attribution_source="heuristic",
+                    attribution_version="taxonomy-v1",
+                    tier="T1",
+                    tier_evaluations={"T1": []},
+                    opa_allow=True,
+                    deny_reasons=[],
+                    policy_input={},
+                    bundle_revision="4ca4787c0a1eea75",
+                    decision_id=f"dec_{i:06d}",
+                    amount_paise=100000 + i,
+                    cuped_covariate=0.5,
+                    covariate_asof_ms=1786900000000,
+                    payload={"redacted": True},
+                ).to_row(),
             )
     finally:
         conn.close()
