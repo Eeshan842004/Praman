@@ -16,3 +16,6 @@ data/raw/
 *.egg-info/
 dist/*.tmp
 .DS_Store
+
+# OPA stderr / decision-log redirects from local dev runs
+opa*.log
