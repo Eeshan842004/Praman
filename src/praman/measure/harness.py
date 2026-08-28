@@ -23,11 +23,12 @@ all. Phase 3 swaps `toy_world` for the real simulator and nothing else changes.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import numpy as np
 
-from praman.measure.assign import assign_arm
+from praman.measure.assign import DEFAULT_HOLDOUT_PCT, assign_arm
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -74,6 +75,10 @@ def reveal(world: World, treated: np.ndarray) -> np.ndarray:
 # ─────────────────────────────────────────────────────────────────────────────
 # The estimator
 # ─────────────────────────────────────────────────────────────────────────────
+# Below this many clusters in either arm, the percentile bootstrap under-covers.
+MIN_CLUSTERS_PER_ARM = 30
+
+
 @dataclass(frozen=True, slots=True)
 class Estimate:
     tau_hat: float
@@ -84,6 +89,10 @@ class Estimate:
     n_holdout: int
     n_clusters_treatment: int
     n_clusters_holdout: int
+    # False when an arm has too few clusters for a percentile cluster bootstrap
+    # to be trusted. Measured, not assumed: at 13 holdout clusters the interval
+    # missed the truth while looking TIGHTER than the same estimator at 72.
+    reliable: bool = True
 
 
 def _cuped_adjust(y: np.ndarray, covariate: np.ndarray | None) -> tuple[np.ndarray, float]:
@@ -111,6 +120,59 @@ def _arm_totals(y: np.ndarray, cluster_id: np.ndarray) -> tuple[np.ndarray, np.n
     sums = np.bincount(inverse, weights=y, minlength=keys.size)
     counts = np.bincount(inverse, minlength=keys.size).astype(float)
     return sums, counts
+
+
+def _bca_interval(
+    boot: np.ndarray,
+    tau_hat: float,
+    t_sums: np.ndarray,
+    t_counts: np.ndarray,
+    h_sums: np.ndarray,
+    h_counts: np.ndarray,
+    alpha: float,
+) -> tuple[float, float]:
+    """Bias-corrected and accelerated bootstrap interval.
+
+    A plain percentile interval assumes the bootstrap distribution is centred
+    and symmetric. Payment outcomes are neither: the outcome is amount x
+    Bernoulli over a heavy-tailed amount distribution, so the distribution is
+    skewed and the percentile interval UNDER-COVERS -- measured at 91.7% against
+    a nominal 95%, i.e. quietly overconfident.
+
+    BCa corrects two things:
+      z0  bias      -- how far the bootstrap median sits from the estimate
+      a   accelera- -- how fast the variance changes with the estimate, taken
+          tion         from a leave-one-CLUSTER-out jackknife (clusters, because
+                       clusters are the independent unit here, not payments)
+    """
+    from scipy.stats import norm
+
+    prop = float((boot < tau_hat).mean())
+    if prop <= 0.0 or prop >= 1.0:  # degenerate; fall back to percentiles
+        lo, hi = np.quantile(boot, [alpha / 2, 1 - alpha / 2])
+        return float(lo), float(hi)
+    z0 = float(norm.ppf(prop))
+
+    # Leave-one-cluster-out, vectorised over each arm.
+    ts, tc = t_sums.sum(), t_counts.sum()
+    hs, hc = h_sums.sum(), h_counts.sum()
+    jack_t = (ts - t_sums) / np.maximum(tc - t_counts, 1e-9) - hs / hc
+    jack_h = ts / tc - (hs - h_sums) / np.maximum(hc - h_counts, 1e-9)
+    jack = np.concatenate([jack_t, jack_h])
+
+    dev = jack.mean() - jack
+    denom = 6.0 * (float((dev**2).sum()) ** 1.5)
+    a = float((dev**3).sum()) / denom if denom > 0 else 0.0
+
+    def adjust(z: float) -> float:
+        return float(norm.cdf(z0 + (z0 + z) / max(1.0 - a * (z0 + z), 1e-9)))
+
+    lo_q = adjust(float(norm.ppf(alpha / 2)))
+    hi_q = adjust(float(norm.ppf(1 - alpha / 2)))
+    lo_q, hi_q = np.clip([lo_q, hi_q], 1e-4, 1 - 1e-4)
+
+    lo, hi = np.quantile(boot, [min(lo_q, hi_q), max(lo_q, hi_q)])
+    return float(lo), float(hi)
 
 
 def estimate_ate(
@@ -168,6 +230,7 @@ def estimate_ate(
         n_holdout=int((~treated).sum()),
         n_clusters_treatment=kt,
         n_clusters_holdout=kh,
+        reliable=min(kt, kh) >= MIN_CLUSTERS_PER_ARM,
     )
 
 
@@ -228,12 +291,34 @@ class ValidationReport:
         )
 
 
+def payments_world(seed: int, n: int = 2000) -> World:
+    """The real decline simulator, shaped as a World.
+
+    The estimator's contract is (Y, W, cluster_id, covariate), so swapping the
+    toy generator for the payments one requires no change anywhere else -- which
+    is exactly why the harness was built against an interface.
+    """
+    from praman.sim.generator import generate_batch
+
+    b = generate_batch(n=n, seed=seed)
+    y0 = np.array([d.amount_paise if d.y0_recovered else 0 for d in b.declines], dtype=float)
+    y1 = np.array([d.amount_paise if d.y1_recovered else 0 for d in b.declines], dtype=float)
+    return World(
+        y0=y0,
+        y1=y1,
+        cluster_id=np.array([d.customer_id for d in b.declines]),
+        covariate=np.array([d.cuped_covariate for d in b.declines], dtype=float),
+        true_ate=float((y1 - y0).mean()),
+    )
+
+
 def validate_estimator(
     n_worlds: int = 200,
-    holdout_pct: int = 10,
+    holdout_pct: int = DEFAULT_HOLDOUT_PCT,
     n_boot: int = 1500,
     seed0: int = 9000,
     experiment_id: str = "harness",
+    world_factory: Callable[[int], World] = toy_world,
 ) -> ValidationReport:
     """Run the estimator against many worlds whose truth is known, then score it."""
     covered = naive_covered = 0
@@ -245,7 +330,7 @@ def validate_estimator(
     truths: list[float] = []
 
     for i in range(n_worlds):
-        world = toy_world(seed0 + i)
+        world = world_factory(seed0 + i)
         treated = np.array(
             [
                 assign_arm(f"{experiment_id}-{i}", f"cust_{k}", holdout_pct) == "treatment"
@@ -290,11 +375,13 @@ def validate_estimator(
 
 
 __all__ = [
+    "MIN_CLUSTERS_PER_ARM",
     "Estimate",
     "ValidationReport",
     "World",
     "estimate_ate",
     "naive_gross_estimate",
+    "payments_world",
     "reveal",
     "toy_world",
     "validate_estimator",

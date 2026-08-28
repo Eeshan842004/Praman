@@ -47,7 +47,7 @@ class Settings(BaseSettings):
     # Changing experiment_id re-randomises every arm assignment. Immutable once
     # a batch has run, or the ledger's arms no longer re-derive.
     experiment_id: str = "praman-v1"
-    holdout_pct: int = Field(default=10, ge=1, le=50)
+    holdout_pct: int = Field(default=20, ge=1, le=50)
 
     # ── Runtime ──────────────────────────────────────────────────────────────
     log_level: str = "INFO"

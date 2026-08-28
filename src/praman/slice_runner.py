@@ -23,15 +23,16 @@ for the payments it chose not to touch.
 from __future__ import annotations
 
 import sqlite3
-from collections import Counter, defaultdict
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from praman.kernel.counters import WINDOW_1H, WINDOW_7D, WINDOW_30D, WindowedCounters
 from praman.kernel.ladder import TIER_ACTION, DeclineContext, evaluate_ladder
 from praman.kernel.opa_client import PolicyClient
 from praman.ledger.chain import append, connect
 from praman.ledger.records import ActuationRecord, DecisionRecord, OutcomeRecord
-from praman.measure.assign import assign_arm
+from praman.measure.assign import DEFAULT_HOLDOUT_PCT, assign_arm
 from praman.measure.from_ledger import estimate_from_ledger, naive_gross_from_ledger
 from praman.measure.harness import Estimate
 from praman.metrics import ATTRIBUTION_CONFIDENCE, DECISIONS, POLICY_VIOLATIONS
@@ -120,7 +121,7 @@ def run_batch(
     ledger_path: str | Path = "data/ledger.db",
     client: PolicyClient | None = None,
     experiment_id: str = "praman-v1",
-    holdout_pct: int = 10,
+    holdout_pct: int = DEFAULT_HOLDOUT_PCT,
     region: str = "IN",
     batch: DeclineBatch | None = None,
 ) -> RunResult:
@@ -132,11 +133,11 @@ def run_batch(
     result = RunResult(experiment_id=experiment_id, ledger_path=Path(ledger_path))
     tiers: Counter[str] = Counter()
 
-    # Law #7: these advance ONLY when an actuation executes.
-    attempts_30d: dict[str, int] = defaultdict(int)
-    attempts_payment: dict[str, int] = defaultdict(int)
-    bin_attempts: dict[str, int] = defaultdict(int)
-    nudges_7d: dict[str, int] = defaultdict(int)
+    # Law #7: these advance ONLY when an actuation executes -- and they are
+    # WINDOWED. A cumulative counter behind a name like `bin_attempts_1h` does
+    # not fail loudly; it quietly strangles the system while every component
+    # reports success.
+    counters = WindowedCounters()
 
     actioned: dict[str, bool] = {}
 
@@ -156,10 +157,11 @@ def run_batch(
                 network_category=d.network_category,
                 merchant_advice_code=d.merchant_advice_code,
                 npci_retry_remark=d.npci_retry_remark,
-                attempts_30d=attempts_30d[d.customer_id],
-                attempts_this_payment=attempts_payment[d.payment_id],
-                bin_attempts_1h=bin_attempts[d.bin],
-                customer_nudges_7d=nudges_7d[d.customer_id],
+                attempts_30d=counters.count(f"cust:{d.customer_id}", d.ts_ms, WINDOW_30D),
+                # Per-payment ceiling is genuinely cumulative, not windowed.
+                attempts_this_payment=counters.total(f"pay:{d.payment_id}"),
+                bin_attempts_1h=counters.count(f"bin:{d.bin}", d.ts_ms, WINDOW_1H),
+                customer_nudges_7d=counters.count(f"nudge:{d.customer_id}", d.ts_ms, WINDOW_7D),
                 is_emandate=d.is_emandate,
                 afa_completed=d.afa_completed,
                 ms_since_pre_debit_notice=d.ms_since_pre_debit_notice,
@@ -185,7 +187,7 @@ def run_batch(
                     payment_id=d.payment_id,
                     customer_id=d.customer_id,
                     arm=arm,
-                    attempt_no=attempts_payment[d.payment_id] + 1,
+                    attempt_no=counters.total(f"pay:{d.payment_id}") + 1,
                     rail=d.rail,
                     symbol=d.symbol,
                     region=region,
@@ -201,7 +203,7 @@ def run_batch(
                     bundle_revision=ladder.bundle_revision,
                     decision_id=ladder.decision_id,
                     amount_paise=d.amount_paise,
-                    cuped_covariate=d.prior_success_rate,
+                    cuped_covariate=d.cuped_covariate,
                     covariate_asof_ms=d.covariate_asof_ms,
                     scheduled_for_ms=d.ts_ms + RETRY_DELAY_MS if ladder.is_action else None,
                     payload={"symbol": d.symbol, "rail": d.rail, "redacted": True},
@@ -229,7 +231,7 @@ def run_batch(
                         customer_id=d.customer_id,
                         arm=arm,
                         decision_seq=decision_seq,
-                        attempt_no=attempts_payment[d.payment_id] + 1,
+                        attempt_no=counters.total(f"pay:{d.payment_id}") + 1,
                         rail=d.rail,
                         tier=ladder.selected_tier,
                         executed=True,
@@ -237,11 +239,12 @@ def run_batch(
                     ).to_row(),
                 )
                 result.n_actuated += 1
-                attempts_30d[d.customer_id] += 1
-                attempts_payment[d.payment_id] += 1
-                bin_attempts[d.bin] += 1
+                fired_at = d.ts_ms + RETRY_DELAY_MS
+                counters.record(f"cust:{d.customer_id}", fired_at)
+                counters.record(f"pay:{d.payment_id}", fired_at)
+                counters.record(f"bin:{d.bin}", fired_at)
                 if ladder.selected_tier == "T3":
-                    nudges_7d[d.customer_id] += 1
+                    counters.record(f"nudge:{d.customer_id}", fired_at)
 
             # ---- Outcome ----------------------------------------------------
             recovered = d.y1_recovered if take_action else d.y0_recovered

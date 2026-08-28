@@ -191,3 +191,61 @@ def test_naive_estimator_is_badly_biased_and_never_covers():
     report = validate_estimator(n_worlds=200, holdout_pct=10, n_boot=500, seed0=9000)
     assert report.naive_mean_bias_pct > 25.0
     assert report.naive_coverage < 0.10
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Small-cluster guard: the bootstrap must not sound confident when it isn't
+# ─────────────────────────────────────────────────────────────────────────────
+def test_estimate_flags_itself_unreliable_with_too_few_clusters():
+    """A percentile cluster bootstrap under-covers badly when an arm holds only
+    a dozen clusters -- it emits a narrow interval it has not earned. Measured
+    directly: at 13 holdout clusters the interval missed the truth while looking
+    tighter than the same estimator at 72 clusters. The estimate must say so."""
+    w = toy_world(5, n_clusters=40)
+    y, arm = _observe(w, holdout_pct=10)
+    est = estimate_ate(y, arm, w.cluster_id, w.covariate)
+    assert est.n_clusters_holdout < 30
+    assert est.reliable is False
+
+
+def test_estimate_is_reliable_with_enough_clusters():
+    w = toy_world(5, n_clusters=600)
+    y, arm = _observe(w, holdout_pct=10)
+    est = estimate_ate(y, arm, w.cluster_id, w.covariate)
+    assert est.n_clusters_holdout >= 30
+    assert est.reliable is True
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# The estimator, validated against the REAL payments simulator
+# ─────────────────────────────────────────────────────────────────────────────
+@pytest.mark.slow
+def test_coverage_holds_on_the_payments_simulator():
+    """Phase 3 swaps the generator; nothing else moves.
+
+    The toy world proved the estimator's statistics. This proves they survive
+    the real thing: clustered subscription declines, a heavy-tailed amount
+    distribution resampled from IEEE-CIS, and an outcome that is amount x
+    Bernoulli rather than a tidy Gaussian.
+    """
+    from praman.measure.harness import payments_world
+
+    report = validate_estimator(
+        n_worlds=120, holdout_pct=20, n_boot=800, seed0=500, world_factory=payments_world
+    )
+    assert 0.90 <= report.coverage <= 0.99, f"coverage {report.coverage:.3f}"
+    assert abs(report.mean_bias_pct) < 12.0, f"bias {report.mean_bias_pct:.2f}%"
+
+
+def test_bca_correction_restores_nominal_coverage_on_heavy_tails():
+    """Payment outcomes are amount x Bernoulli over a lognormal amount: skewed
+    and heavy-tailed. A plain percentile bootstrap under-covers there (measured
+    at 91.7%), which means an overconfident interval -- the precise failure this
+    harness exists to catch. BCa corrects for bias and skew and should pull
+    coverage back to nominal."""
+    from praman.measure.harness import payments_world
+
+    report = validate_estimator(
+        n_worlds=150, holdout_pct=20, n_boot=1000, seed0=500, world_factory=payments_world
+    )
+    assert 0.92 <= report.coverage <= 0.97, f"coverage {report.coverage:.3f}"

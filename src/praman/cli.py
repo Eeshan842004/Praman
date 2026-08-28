@@ -19,6 +19,7 @@ from pathlib import Path
 
 from praman.kernel.opa_client import PolicyClient
 from praman.ledger.chain import FIELDS, connect, verify
+from praman.measure.assign import DEFAULT_HOLDOUT_PCT
 from praman.measure.harness import validate_estimator
 from praman.slice_runner import run_batch
 
@@ -257,7 +258,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     e.add_argument("--worlds", type=int, default=200)
     e.add_argument("--boot", type=int, default=2000)
-    e.add_argument("--holdout-pct", type=int, default=10)
+    e.add_argument("--holdout-pct", type=int, default=DEFAULT_HOLDOUT_PCT)
     e.add_argument("--seed", type=int, default=9000)
     e.set_defaults(func=_cmd_validate_estimator)
 
@@ -266,7 +267,7 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--seed", type=int, default=42)
     b.add_argument("--ledger", default="data/ledger.db")
     b.add_argument("--experiment-id", default="praman-v1")
-    b.add_argument("--holdout-pct", type=int, default=10)
+    b.add_argument("--holdout-pct", type=int, default=DEFAULT_HOLDOUT_PCT)
     b.set_defaults(func=_cmd_run_batch)
 
     return parser

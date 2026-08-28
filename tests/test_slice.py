@@ -31,7 +31,7 @@ from praman.slice_runner import run_batch
 def batch(tmp_path_factory):
     path = tmp_path_factory.mktemp("slice") / "ledger.db"
     result = run_batch(
-        n=400, seed=42, ledger_path=path, client=rego_like_client(), experiment_id="slice-test"
+        n=2000, seed=42, ledger_path=path, client=rego_like_client(), experiment_id="slice-test"
     )
     return result, path
 
