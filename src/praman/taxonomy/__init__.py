@@ -42,7 +42,12 @@ SIDE_CHANNELS: tuple[str, ...] = ("cvv_result", "expiry_valid", "avs_result")
 @dataclass(frozen=True, slots=True)
 class CauseMeta:
     name: str
+    # Exactly what retry.rego's `hard_decline` rule tests: hard == no action of
+    # any kind is legal.
     cause_class: str  # "soft" | "hard"
+    # Ladder routing, NOT policy. An expired card is not retryable but is
+    # perfectly nudgeable, so it is soft + retryable=False + default_tier T3.
+    retryable: bool
     default_tier: str  # T0..T4
     description: str
 
@@ -94,6 +99,7 @@ class Taxonomy:
         return CauseMeta(
             name=cause,
             cause_class=c["class"],
+            retryable=bool(c.get("retryable", c["class"] == "soft")),
             default_tier=c["default_tier"],
             description=c["description"],
         )

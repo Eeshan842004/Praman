@@ -22,41 +22,55 @@
 version: 1
 
 # ── Cause metadata ─────────────────────────────────────────────────────────
+# `class` means exactly what retry.rego's `hard_decline` rule tests: hard = NO
+#   action of any kind is legal. Only lost/stolen cards and revoked mandates.
+# `retryable` is ladder routing, not policy: an expired card cannot be retried
+#   but CAN be nudged, so it is soft + retryable:false + default_tier T3.
+#   Conflating the two would route every expired card to terminate.
 causes:
   INSUFFICIENT_FUNDS:
     class: soft
+    retryable: true
     default_tier: T1
     description: Payer lacked balance or available credit at authorisation time.
   ISSUER_RISK_BLOCK:
     class: soft
+    retryable: true
     default_tier: T2
     description: Issuer declined on its own risk/fraud score, not on funds.
   VELOCITY_LIMIT:
     class: soft
+    retryable: true
     default_tier: T1
     description: Per-transaction, daily, or frequency ceiling reached.
   AUTH_FAILURE:
     class: soft
+    retryable: true
     default_tier: T3
     description: Authentication did not complete — OTP, 3DS, PIN, or MPIN.
   TECHNICAL_DECLINE:
     class: soft
+    retryable: true
     default_tier: T1
     description: Issuer, network, or gateway was unavailable or errored.
   EXPIRED_OR_INVALID_CREDENTIAL:
-    class: hard
+    class: soft
+    retryable: false
     default_tier: T3
     description: Card expired, PAN invalid, or VPA unresolvable. Needs new data.
   INSTRUMENT_DISABLED:
-    class: hard
+    class: soft
+    retryable: false
     default_tier: T3
     description: Instrument blocked or not enabled for this transaction type.
   LOST_STOLEN_FRAUD:
     class: hard
+    retryable: false
     default_tier: T0
     description: Reported lost, stolen, or confirmed fraudulent. Never retry.
   MANDATE_TERMINATED:
     class: hard
+    retryable: false
     default_tier: T0
     description: Recurring authority revoked or cancelled. Never retry.
 

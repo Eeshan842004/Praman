@@ -201,3 +201,121 @@ def test_validate_estimator_fails_when_coverage_is_off(capsys, monkeypatch):
     monkeypatch.setattr(cli, "validate_estimator", lambda **_: broken)
     assert main(["validate-estimator", "--worlds", "200"]) != 0
     assert "coverage" in capsys.readouterr().out.lower()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# run-batch
+# ─────────────────────────────────────────────────────────────────────────────
+def test_run_batch_produces_a_verifiable_ledger(tmp_path, capsys, monkeypatch):
+    """The whole slice through the CLI: declines in, attested ledger and an
+    incremental estimate out."""
+    from tests.conftest import rego_like_client
+
+    import praman.cli as cli
+
+    p = tmp_path / "batch.db"
+    monkeypatch.setattr(cli, "_batch_client", lambda: rego_like_client())
+    rc = main(
+        [
+            "run-batch",
+            "--n",
+            "200",
+            "--seed",
+            "5",
+            "--ledger",
+            str(p),
+            "--experiment-id",
+            "cli-test",
+        ]
+    )
+    out = capsys.readouterr().out
+    assert rc == 0, out
+    assert "policy violations" in out
+    assert "95% CI" in out
+
+    capsys.readouterr()
+    assert main(["verify", "--ledger", str(p)]) == 0
+    assert "ATTESTATION PASS" in capsys.readouterr().out
+
+
+def test_run_batch_fails_if_any_policy_violation_occurs(tmp_path, capsys, monkeypatch):
+    """The command is a gate. A non-zero violation count must not exit 0."""
+    import praman.cli as cli
+    from praman.slice_runner import RunResult
+
+    monkeypatch.setattr(
+        cli,
+        "run_batch",
+        lambda **_: RunResult(
+            experiment_id="x",
+            ledger_path=tmp_path / "n.db",
+            n_declines=10,
+            policy_violations=3,
+        ),
+    )
+    assert main(["run-batch", "--n", "10", "--ledger", str(tmp_path / "n.db")]) != 0
+    assert "violation" in capsys.readouterr().out.lower()
+
+
+def test_verify_does_not_count_refusals_as_violations(tmp_path, capsys, monkeypatch):
+    """A terminated decline is correct behaviour, not a breach.
+
+    The earlier query counted every DECISION with opa_allow=0 -- i.e. every
+    payment the kernel correctly refused to touch -- and reported them as
+    violations. That inverts the meaning of the one gauge the compliance story
+    rests on.
+    """
+    from tests.conftest import rego_like_client
+
+    import praman.cli as cli
+
+    p = tmp_path / "b.db"
+    monkeypatch.setattr(cli, "_batch_client", lambda: rego_like_client())
+    main(
+        [
+            "run-batch",
+            "--n",
+            "300",
+            "--seed",
+            "3",
+            "--ledger",
+            str(p),
+            "--experiment-id",
+            "viol-test",
+        ]
+    )
+    capsys.readouterr()
+
+    assert main(["verify", "--ledger", str(p)]) == 0
+    out = capsys.readouterr().out
+    assert "0 policy violations" in out
+
+
+def test_verify_groups_bundles_over_decisions_only(tmp_path, capsys, monkeypatch):
+    """ACTUATION and OUTCOME rows carry no bundle revision -- only decisions are
+    authorised. Including them invents a phantom 'None' bundle."""
+    from tests.conftest import rego_like_client
+
+    import praman.cli as cli
+
+    p = tmp_path / "b.db"
+    monkeypatch.setattr(cli, "_batch_client", lambda: rego_like_client())
+    main(
+        [
+            "run-batch",
+            "--n",
+            "200",
+            "--seed",
+            "4",
+            "--ledger",
+            str(p),
+            "--experiment-id",
+            "bundle-test",
+        ]
+    )
+    capsys.readouterr()
+
+    main(["verify", "--ledger", str(p)])
+    out = capsys.readouterr().out
+    assert "bundle None" not in out
+    assert "mockrev00000001" in out

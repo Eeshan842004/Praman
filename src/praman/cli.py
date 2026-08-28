@@ -17,8 +17,10 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+from praman.kernel.opa_client import PolicyClient
 from praman.ledger.chain import FIELDS, connect, verify
 from praman.measure.harness import validate_estimator
+from praman.slice_runner import run_batch
 
 EXIT_OK = 0
 EXIT_FAIL = 1
@@ -57,21 +59,41 @@ def _cmd_verify(args: argparse.Namespace) -> int:
 
         # Grouping by revision is what proves we can audit a policy CHANGE and
         # not merely a policy: each span replays against the bundle that
-        # actually authorised it.
+        # actually authorised it. Only DECISION rows carry a revision -- an
+        # actuation is not authorised, the decision behind it was.
+        decisions = conn.execute(
+            "SELECT COUNT(*) FROM ledger WHERE entry_type = 'DECISION'"
+        ).fetchone()[0]
         spans = conn.execute(
-            "SELECT bundle_revision, COUNT(*), MIN(seq), MAX(seq) "
-            "FROM ledger GROUP BY bundle_revision ORDER BY MIN(seq)"
+            "SELECT bundle_revision, COUNT(*), MIN(seq), MAX(seq) FROM ledger "
+            "WHERE entry_type = 'DECISION' GROUP BY bundle_revision ORDER BY MIN(seq)"
         ).fetchall()
         if spans:
-            print(f"+ {count}/{count} decisions reproduced across {len(spans)} pinned bundle(s)")
+            print(
+                f"+ {decisions}/{decisions} decisions reproduced across "
+                f"{len(spans)} pinned bundle(s)"
+            )
             for rev, n, lo, hi in spans:
                 print(f"    bundle {rev} : entries {lo}-{hi}  ({n})")
 
+        # A violation is an ACTUATION that executed without an authorising
+        # allow. A refusal is not a violation -- refusing is the kernel working.
         violations = conn.execute(
-            "SELECT COUNT(*) FROM ledger WHERE opa_allow = 0 AND tier != 'T4'"
+            "SELECT COUNT(*) FROM ledger a WHERE a.entry_type = 'ACTUATION' "
+            "AND a.executed = 1 AND NOT EXISTS ("
+            "  SELECT 1 FROM ledger d WHERE d.seq = a.decision_seq "
+            "  AND d.entry_type = 'DECISION' AND d.opa_allow = 1)"
         ).fetchone()[0]
-        arms = Counter(r[0] for r in conn.execute("SELECT arm FROM ledger"))
-        print(f"+ {violations} policy violations . arms: {dict(sorted(arms.items()))}")
+        actuations = conn.execute(
+            "SELECT COUNT(*) FROM ledger WHERE entry_type = 'ACTUATION' AND executed = 1"
+        ).fetchone()[0]
+        arms = Counter(
+            r[0] for r in conn.execute("SELECT arm FROM ledger WHERE entry_type = 'DECISION'")
+        )
+        print(
+            f"+ {violations} policy violations across {actuations} actuations . "
+            f"arms: {dict(sorted(arms.items()))}"
+        )
         print("ATTESTATION PASS")
         return EXIT_OK
     finally:
@@ -177,6 +199,41 @@ def _cmd_validate_estimator(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _batch_client() -> PolicyClient:
+    """Indirection so tests can inject a policy client without a live sidecar."""
+    return PolicyClient()
+
+
+def _cmd_run_batch(args: argparse.Namespace) -> int:
+    """Run the full recovery pipeline over a batch of declines.
+
+    A gate, not a report: any policy violation exits non-zero. The whole
+    compliance claim is that the count stays at zero, so the exit code has to
+    mean it.
+    """
+    result = run_batch(
+        n=args.n,
+        seed=args.seed,
+        ledger_path=args.ledger,
+        client=_batch_client(),
+        experiment_id=args.experiment_id,
+        holdout_pct=args.holdout_pct,
+    )
+    print(result.render())
+    print()
+
+    if result.policy_violations:
+        print(
+            f"x {result.policy_violations} policy violation(s) -- an actuation "
+            "occurred without an authorising allow"
+        )
+        return EXIT_FAIL
+
+    print(f"+ 0 policy violations . ledger at {result.ledger_path}")
+    print(f"  verify it: praman verify --ledger {result.ledger_path}")
+    return EXIT_OK
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="praman",
@@ -203,6 +260,14 @@ def build_parser() -> argparse.ArgumentParser:
     e.add_argument("--holdout-pct", type=int, default=10)
     e.add_argument("--seed", type=int, default=9000)
     e.set_defaults(func=_cmd_validate_estimator)
+
+    b = sub.add_parser("run-batch", help="run the recovery pipeline over a batch of declines")
+    b.add_argument("--n", type=int, default=1000)
+    b.add_argument("--seed", type=int, default=42)
+    b.add_argument("--ledger", default="data/ledger.db")
+    b.add_argument("--experiment-id", default="praman-v1")
+    b.add_argument("--holdout-pct", type=int, default=10)
+    b.set_defaults(func=_cmd_run_batch)
 
     return parser
 
