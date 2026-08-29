@@ -37,8 +37,12 @@ Praman closes both gaps.
    the complete deny-set is recorded.
 3. **Proves what it did.** A SHA-256 hash-chained, append-only ledger records every
    decision *before* actuation, stamped with the bundle revision OPA itself
-   reported. `praman verify` replays the entire history against those pinned
-   bundles.
+   reported — together with the exact policy input it was judged on. `praman verify`
+   does two independent things: it recomputes the chain, and it re-POSTs every
+   stored input to OPA loaded with that entry's pinned bundle and compares the
+   verdict. The chain proves nothing was changed afterwards; the replay proves the
+   record was true when written. A chain alone cannot catch a writer that bypassed
+   the policy engine and recorded its own verdict.
 4. **Measures honestly.** It does not claim recovered revenue. It validates its
    *estimator* against 200 simulated worlds with sealed ground truth, reporting
    bias, RMSE, and 95% CI coverage — beside the same statistics for the naive
@@ -76,10 +80,24 @@ uv sync
 
 ### Verify the evidence yourself
 
-The ledger is committed. You do not have to trust the demo video:
+You do not have to trust the demo video — generate the evidence and attest it:
 
 ```bash
+.\scripts\dev.ps1                      # OPA sidecar on :8181
+uv run praman run-batch --n 3000       # writes data/ledger.db
 uv run praman verify --ledger data/ledger.db
+```
+
+`verify` recomputes the hash chain **and** replays every recorded decision against
+the committed bundle in `dist/` that authorised it. It needs the OPA binary
+(`tools/opa.exe`, fetched by `scripts/bootstrap.ps1`); without it the chain is
+still checked and the replay is reported as skipped rather than silently assumed.
+
+Then break it on purpose:
+
+```bash
+uv run praman tamper --ledger data/ledger.db --entry 447 --set amount_paise=99999900
+uv run praman verify  --ledger data/ledger.db     # -> ATTESTATION FAIL
 ```
 
 ## Policy
@@ -105,11 +123,11 @@ configuration, not constants.
 | 0 | Foundations, policy kernel, toolchain | ✅ |
 | 1 | Canonical taxonomy + likelihood matrix | ✅ (ingest pending Razorpay keys) |
 | 2 | Ledger + replay attestation | ✅ |
-| 3 | Causal simulator with sealed potential outcomes | ◻ |
+| 3 | Causal simulator with sealed potential outcomes | ✅ |
 | 4 | Attribution + Information Capture Ratio | ◻ |
-| 5 | Policy bundle attestation | ◻ |
-| 6 | Orchestrator + logical clock | ◻ |
-| 7 | Estimator validation harness | ✅ (toy world; real simulator lands Phase 3) |
+| 5 | Policy bundle attestation + replay | ✅ |
+| 6 | Orchestrator + logical clock | ✅ (escalation ladder T0–T4) |
+| 7 | Estimator validation harness | ✅ (scored on the real simulator) |
 | 8 | Dashboard + explanations | ◻ |
 
 ## Honesty

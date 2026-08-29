@@ -19,6 +19,7 @@ without replaying is worse than no test.
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 
 import pytest
@@ -35,11 +36,23 @@ from praman.slice_runner import run_batch
 # ─────────────────────────────────────────────────────────────────────────────
 # Fixtures
 # ─────────────────────────────────────────────────────────────────────────────
+def _unavailable(reason: str):
+    """Skip locally, FAIL in CI.
+
+    A skipped test and a passing test look identical in pytest's summary line.
+    These tests carry Demo Beat 5, so CI sets PRAMAN_REQUIRE_OPA and a missing
+    binary becomes a red build rather than a silent gap in the evidence.
+    """
+    if os.environ.get("PRAMAN_REQUIRE_OPA"):
+        pytest.fail(f"PRAMAN_REQUIRE_OPA is set but {reason}")
+    pytest.skip(reason)
+
+
 @pytest.fixture(scope="module")
 def opa_binary():
     binary = find_opa()
     if binary is None:
-        pytest.skip("no opa binary in tools/ or on PATH")
+        _unavailable("no opa binary in tools/ or on PATH")
     return binary
 
 
@@ -52,7 +65,7 @@ def pinned():
     """
     bundles = sorted(BUNDLE_DIR.glob("bundle-*.tar.gz"))
     if not bundles:
-        pytest.skip("no committed bundle in dist/")
+        _unavailable("no committed bundle in dist/")
     newest = bundles[-1]
     return newest.name.removeprefix("bundle-").removesuffix(".tar.gz"), newest
 
@@ -395,3 +408,60 @@ def test_report_never_claims_reproduction_without_replaying():
     empty = ReplayReport(total=3000)
     assert not empty.ran
     assert "reproduced" not in empty.render()
+
+
+def test_a_missing_opa_binary_fails_the_build_in_ci(monkeypatch):
+    """Locally a missing binary should skip. In CI it must be a red build.
+
+    Without this, the most important claim in the submission could quietly stop
+    being tested and CI would still print green -- pytest's summary line does
+    not distinguish a skip from a pass.
+    """
+    monkeypatch.setenv("PRAMAN_REQUIRE_OPA", "1")
+    with pytest.raises(pytest.fail.Exception):
+        _unavailable("opa is missing")
+
+    monkeypatch.delenv("PRAMAN_REQUIRE_OPA")
+    with pytest.raises(pytest.skip.Exception):
+        _unavailable("opa is missing")
+
+
+def test_find_opa_rejects_an_explicit_path_that_does_not_exist(tmp_path):
+    assert find_opa(tmp_path / "nope.exe") is None
+
+
+def test_a_partly_replayed_ledger_is_not_an_attestation(live_ledger, tmp_path):
+    """One bundle committed, another missing: the rows under the missing bundle
+    are never checked, so the report must not pass.
+
+    Those rows land in `total` but in neither `reproduced` nor `unreplayable`,
+    which is exactly how a partial replay could have printed a leading "+" and
+    passed while some decisions were never re-derived at all.
+    """
+    import shutil
+
+    path = tmp_path / "twobundle.db"
+    shutil.copy(live_ledger, path)
+
+    conn = connect(path)
+    try:
+        seq, _stored = _first_decision(conn)
+        conn.execute("DROP TRIGGER IF EXISTS ledger_no_update")
+        conn.execute("UPDATE ledger SET bundle_revision = 'deadbeefdeadbeef' WHERE seq = ?", (seq,))
+    finally:
+        conn.close()
+
+    _rechain(path, from_seq=seq)
+
+    conn = connect(path)
+    try:
+        chain_ok, _b, _m = verify(conn)
+        report = replay_ledger(conn)
+    finally:
+        conn.close()
+
+    assert chain_ok
+    assert report.ran, "the committed bundle still replayed its own rows"
+    assert report.reproduced < report.total
+    assert not report.ok, "a partial replay must not pass as an attestation"
+    assert "deadbeefdeadbeef" in report.render()

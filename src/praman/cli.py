@@ -21,7 +21,9 @@ from praman.kernel.opa_client import PolicyClient
 from praman.ledger.chain import FIELDS, connect, verify
 from praman.ledger.replay import replay_ledger
 from praman.measure.assign import DEFAULT_HOLDOUT_PCT
-from praman.measure.harness import validate_estimator
+from praman.measure.harness import payments_world, toy_world, validate_estimator
+from praman.measure.power import DEFAULT_GRID, PowerCurve, power_curve
+from praman.measure.report import build_report
 from praman.slice_runner import run_batch
 
 EXIT_OK = 0
@@ -162,12 +164,21 @@ def _cmd_validate_estimator(args: argparse.Namespace) -> int:
     claim our estimator recovers the truth, and this is the check that earns the
     claim. If coverage drifts out of band the exit code says so.
     """
+    # Default to the payments simulator, not the toy world. The toy world
+    # proved the estimator's CONTRACT before the simulator existed and is still
+    # useful for that -- but the naive estimator's bias is scale-dependent, so
+    # quoting a toy-world figure as the headline would be quoting a number about
+    # a domain-free generator. The headline must be measured where it is used.
+    factory = toy_world if args.world == "toy" else (lambda s: payments_world(s, n=args.world_n))
     report = validate_estimator(
         n_worlds=args.worlds,
         holdout_pct=args.holdout_pct,
         n_boot=args.boot,
         seed0=args.seed,
+        world_factory=factory,
     )
+    scope = "" if args.world == "toy" else f" (n={args.world_n} per world)"
+    print(f"world: {args.world}{scope}")
     print(report.render())
     print()
 
@@ -236,6 +247,140 @@ def _cmd_run_batch(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_power(args: argparse.Namespace) -> int:
+    """Compute the minimum detectable effect, and let the curve choose n.
+
+    This runs BEFORE a headline batch, not after. An interval that straddles
+    zero is only a finding if you did not already know the design could not
+    resolve the effect; otherwise it is an arithmetic result you should have
+    computed in advance. This is that computation.
+    """
+    if args.load:
+        curve = PowerCurve.from_json(Path(args.load).read_text(encoding="utf-8"))
+        print(f"loaded measured curve from {args.load}")
+        return _render_power(curve)
+
+    grid = tuple(int(x) for x in args.grid.split(",")) if args.grid else DEFAULT_GRID
+    curve: PowerCurve = power_curve(
+        grid=grid,
+        # 0 means auto: allocate replicates by observation budget so every grid
+        # point is measured to roughly equal precision. A fixed small count made
+        # the curve report its own sampling noise.
+        seeds_per_point=args.seeds or None,
+        client_factory=_batch_client,
+        holdout_pct=args.holdout_pct,
+    )
+    if args.save:
+        Path(args.save).write_text(curve.to_json(), encoding="utf-8")
+        print(f"saved measured curve to {args.save}")
+    return _render_power(curve)
+
+
+def _render_power(curve: PowerCurve) -> int:
+    print(curve.render())
+    print()
+
+    effect = curve.true_effect_paise
+
+    # Quote the MEASURED point at n=3,000, never the fitted one. The fit exists
+    # to extrapolate beyond the grid; using it where a measurement exists would
+    # let a bad fit quietly rewrite the headline claim.
+    measured = next((p for p in curve.points if p.n == 3000), None)
+    at_3000 = measured.mde_paise if measured else curve.mde_at(3000)
+    source = "measured" if measured else "fitted"
+
+    print(f"  (a) at n=3,000 the MDE at 80% power is Rs {at_3000 / 100:,.2f} ({source}).")
+    print(
+        f"      The true ITT effect is Rs {effect / 100:,.2f}, which is "
+        f"{effect / at_3000:.2f}x the MDE."
+    )
+    if effect < at_3000:
+        print("      The effect sits BELOW the MDE: that batch could not have resolved")
+        print("      it at 80% power. The null was arithmetic, not evidence -- and it")
+        print("      is computed here rather than discovered in a straddling interval.")
+    else:
+        print("      The effect sits above the MDE at this n.")
+    print()
+
+    # The two rules are printed side by side on purpose. They disagree, and the
+    # disagreement is a finding rather than a defect to hide: the 1/sqrt(n) law
+    # is asymptotically correct but converges slowly on a heavy-tailed outcome,
+    # so the fit under-describes the variance at these sample sizes.
+    by_grid = curve.required_n_measured(effect)
+    by_fit = curve.required_n_fitted(effect)
+    required = curve.required_n(effect)
+
+    print(f"  (b) n from the measured grid (monotone) .......  {by_grid:,}")
+    print(f"      n from the fitted 1/sqrt(n) law ..........  {by_fit:,}")
+    if measured and measured.mde_paise > 0:
+        residual = abs(curve.mde_at(3000) - measured.mde_paise) / measured.mde_paise
+        if residual > 0.15:
+            print()
+            print(f"      The fit misses the MEASURED MDE at n=3,000 by {residual:.0%}, so it")
+            print("      is reported as a cross-check and not used to choose n. Payment")
+            print("      outcomes are amount x Bernoulli over a lognormal amount, so the")
+            print("      thin holdout arm converges slowly and the fit runs optimistic.")
+    print()
+
+    if not required:
+        print("  x no batch size on this grid resolves the effect. Extend the grid.")
+        return EXIT_FAIL
+
+    print(
+        f"      RECOMMENDED n ............................  {required:,}"
+        "   (the more conservative rule)"
+    )
+    point = next((p for p in curve.points if p.n == required), None)
+    if point and point.se_paise > 0:
+        print(f"      measured MDE at that n ...................  Rs {point.mde_paise / 100:,.2f}")
+        print(
+            f"      effect / SE ..............................  {effect / point.se_paise:.2f} sigma"
+        )
+    print()
+    print(f"      praman run-batch --n {required} --experiment-id praman-powered")
+    return EXIT_OK
+
+
+def _cmd_report(args: argparse.Namespace) -> int:
+    """Print the result in three tiers, headline first.
+
+    A gate as well as a report: if the estimator's coverage is not nominal, the
+    tiers below it are not entitled to be believed, so the command says so and
+    exits non-zero rather than printing them as though they stood on their own.
+    """
+    report = build_report(
+        powered_n=args.powered_n,
+        illustrative_n=args.illustrative_n,
+        n_worlds=args.worlds,
+        world_n=args.world_n,
+        n_boot=args.boot,
+        holdout_pct=args.holdout_pct,
+        ledger_dir=Path(args.ledger_dir),
+        client_factory=_batch_client,
+    )
+    print(report.render())
+    print()
+
+    primary = report.primary
+    if primary is not None and not (COVERAGE_FLOOR <= primary.coverage <= COVERAGE_CEILING):
+        print(
+            f"x PRIMARY coverage {primary.coverage:.1%} is outside "
+            f"[{COVERAGE_FLOOR:.0%}, {COVERAGE_CEILING:.0%}] -- the interval is wrong, "
+            "so nothing below it can be believed"
+        )
+        return EXIT_FAIL
+
+    violations = sum(
+        run.policy_violations for run in (report.secondary, report.illustrative) if run
+    )
+    if violations:
+        print(f"x {violations} policy violation(s)")
+        return EXIT_FAIL
+
+    print("+ coverage nominal . 0 policy violations")
+    return EXIT_OK
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="praman",
@@ -270,6 +415,13 @@ def build_parser() -> argparse.ArgumentParser:
     e.add_argument("--boot", type=int, default=2000)
     e.add_argument("--holdout-pct", type=int, default=DEFAULT_HOLDOUT_PCT)
     e.add_argument("--seed", type=int, default=9000)
+    e.add_argument(
+        "--world",
+        choices=("payments", "toy"),
+        default="payments",
+        help="which generator to score against (default: the payments simulator)",
+    )
+    e.add_argument("--world-n", type=int, default=2000, help="declines per simulated world")
     e.set_defaults(func=_cmd_validate_estimator)
 
     b = sub.add_parser("run-batch", help="run the recovery pipeline over a batch of declines")
@@ -279,6 +431,35 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--experiment-id", default="praman-v1")
     b.add_argument("--holdout-pct", type=int, default=DEFAULT_HOLDOUT_PCT)
     b.set_defaults(func=_cmd_run_batch)
+
+    r = sub.add_parser(
+        "report",
+        help="the reported result in three tiers: primary, secondary, illustrative",
+    )
+    r.add_argument("--powered-n", type=int, required=True)
+    r.add_argument("--illustrative-n", type=int, default=3000)
+    r.add_argument("--worlds", type=int, default=200)
+    r.add_argument("--world-n", type=int, default=2000)
+    r.add_argument("--boot", type=int, default=1500)
+    r.add_argument("--holdout-pct", type=int, default=DEFAULT_HOLDOUT_PCT)
+    r.add_argument("--ledger-dir", default="data")
+    r.set_defaults(func=_cmd_report)
+
+    p = sub.add_parser(
+        "power",
+        help="minimum detectable effect and the MDE-vs-n curve that picks the batch size",
+    )
+    p.add_argument("--grid", default=None, help="comma-separated batch sizes")
+    p.add_argument("--save", default=None, help="write the measured curve to this JSON file")
+    p.add_argument("--load", default=None, help="render a previously measured curve")
+    p.add_argument(
+        "--seeds",
+        type=int,
+        default=0,
+        help="runs per grid point (0 = auto, allocated by observation budget)",
+    )
+    p.add_argument("--holdout-pct", type=int, default=DEFAULT_HOLDOUT_PCT)
+    p.set_defaults(func=_cmd_power)
 
     return parser
 

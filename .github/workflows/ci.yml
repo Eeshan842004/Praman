@@ -50,6 +50,16 @@ jobs:
         with:
           enable-cache: true
 
+      # Replay attestation is the single most important claim in the submission,
+      # and tests/test_replay.py SKIPS without this binary. A skipped test is
+      # indistinguishable from a passing one in the summary line, so the claim
+      # would have been unverified in CI while looking green.
+      - name: Install OPA (required by replay attestation tests)
+        run: |
+          curl -sSL -o /usr/local/bin/opa             "https://openpolicyagent.org/downloads/v${OPA_VERSION}/opa_linux_amd64_static"
+          chmod +x /usr/local/bin/opa
+          opa version
+
       - name: Install
         run: uv sync --frozen
 
@@ -62,7 +72,13 @@ jobs:
       - name: mypy
         run: uv run mypy || true   # advisory until Phase 4; enforced from Phase 5
 
+      # PRAMAN_REQUIRE_OPA turns the replay tests' skip into a failure. Locally
+      # a missing binary should skip; in CI a skipped test is indistinguishable
+      # from a passing one in the summary line, and replay attestation is the
+      # claim the submission rests on. It must not be able to go quiet.
       - name: pytest
+        env:
+          PRAMAN_REQUIRE_OPA: "1"
         run: uv run pytest
 
   security:

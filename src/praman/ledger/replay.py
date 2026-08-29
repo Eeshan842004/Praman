@@ -199,10 +199,20 @@ class ReplayReport:
 
     @property
     def ok(self) -> bool:
-        """Divergences fail. So does a decision whose input was never stored --
-        an unreplayable decision is an unproven one, and this command exists to
-        distinguish proof from assertion."""
-        return not self.divergences and self.unreplayable == 0
+        """Every decision reproduced, or this is not an attestation.
+
+        Three ways to fail, and all three must count:
+          * a divergence -- the pinned policy does not produce the record;
+          * a decision that stored no input -- unproven, not proven;
+          * a decision under a bundle that is not committed -- never replayed.
+
+        The third is the subtle one. Those rows are in `total` but in neither
+        `reproduced` nor `unreplayable`, so testing only the first two would
+        report a partial replay with a leading "+" and pass the attestation
+        while some decisions were never checked at all. Requiring
+        reproduced == total closes it by construction.
+        """
+        return not self.divergences and self.unreplayable == 0 and self.reproduced == self.total
 
     def render(self) -> str:
         if not self.ran:
@@ -217,8 +227,7 @@ class ReplayReport:
             lines.append(f"    bundle {rev} : entries {lo}-{hi}  ({n} decisions)")
         if self.unreplayable:
             lines.append(
-                f"  x {self.unreplayable} decision(s) stored no policy input and "
-                "cannot be replayed"
+                f"  x {self.unreplayable} decision(s) stored no policy input and cannot be replayed"
             )
         if self.divergences:
             lines.append(f"  x {self.diverged} decision(s) diverged from the pinned policy:")
@@ -266,9 +275,7 @@ def _compare(
     # The bundle carries its own revision, so this catches a swapped or
     # re-cut bundle even when the verdict happens to match.
     if replayed.bundle_revision != revision:
-        out.append(
-            Divergence(seq, revision, "bundle_revision", revision, replayed.bundle_revision)
-        )
+        out.append(Divergence(seq, revision, "bundle_revision", revision, replayed.bundle_revision))
 
     return out
 

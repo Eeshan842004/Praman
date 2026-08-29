@@ -51,6 +51,15 @@ gross-recovery estimator the industry uses.
 The ledger detects modification. It does not stop a sufficiently privileged
 actor from attempting one.
 
+**And a chain alone proves less than it appears to.** It shows nothing was
+changed *after* the fact; it cannot show the record was *true when written*. A
+writer that bypassed OPA and recorded its own verdict appends through the normal
+path and hashes perfectly. That is why every decision stores the exact policy
+input it was judged on, and why `praman verify` re-POSTs each one to OPA loaded
+with that entry's pinned bundle and compares the verdict. The two checks are
+independent and both are required; either alone is a weaker claim than it
+sounds.
+
 `praman tamper` must explicitly `DROP TRIGGER` on the append-only guard before it
 can mutate a row — a privileged and visible act — and the chain still catches it.
 That is the correct security property to claim, and the only one we claim.
@@ -120,6 +129,23 @@ tests on continuous features and chi-square on categoricals.
 - The CUPED covariate is strictly **pre-treatment**, asserted in code.
 - Reported coverage is measured, not assumed. If it falls outside [0.92, 0.97] the
   interval is wrong and the finding is withdrawn.
+- **Batch size is chosen by a power calculation, not by convenience.** The minimum
+  detectable effect at 80% power is computed *before* a headline batch runs, from
+  the estimator's own measured standard error rather than an assumed ICC. At
+  n=3,000 the MDE is ₹41.04 against a true ITT effect of ₹33.79 — that batch
+  cannot resolve its own effect, and we say so rather than presenting the
+  resulting null as a finding. It is still shown, deliberately, beside the
+  powered run.
+- **The 1/√n law describes this estimator only asymptotically.** The outcome is
+  amount × Bernoulli over a lognormal amount, so the 20% holdout mean is driven
+  by a handful of large recoveries and its variance is itself heavy-tailed. A
+  fitted 1/√n curve missed the measured MDE at n=3,000 by 33% even at 8–12 runs
+  per grid point. We therefore choose n from the measured grid and report the fit
+  only as a cross-check, taking whichever rule is more conservative.
+- **The effect size is fixed and hash-pinned.** Powering an experiment means
+  choosing n, never choosing τ. `tests/test_power.py` fails if the simulator's
+  recovery rates change, so tuning the generator until the interval excludes zero
+  cannot happen quietly.
 
 ## 10. Scope boundaries
 

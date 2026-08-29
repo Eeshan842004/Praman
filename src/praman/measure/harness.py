@@ -89,6 +89,12 @@ class Estimate:
     n_holdout: int
     n_clusters_treatment: int
     n_clusters_holdout: int
+    # Standard deviation of the cluster-bootstrap distribution -- the estimator's
+    # OWN measured standard error, not one derived from an assumed ICC and an
+    # assumed design effect. Power analysis reads this: an MDE computed from a
+    # formula would be a claim about a textbook design, while this is a claim
+    # about the estimator we actually ship.
+    se: float = 0.0
     # False when an arm has too few clusters for a percentile cluster bootstrap
     # to be trusted. Measured, not assumed: at 13 holdout clusters the interval
     # missed the truth while looking TIGHTER than the same estimator at 72.
@@ -230,6 +236,7 @@ def estimate_ate(
         n_holdout=int((~treated).sum()),
         n_clusters_treatment=kt,
         n_clusters_holdout=kh,
+        se=float(boot.std(ddof=1)),
         reliable=min(kt, kh) >= MIN_CLUSTERS_PER_ARM,
     )
 
@@ -283,10 +290,10 @@ class ValidationReport:
                 "-" * w,
                 "NOTE: the naive bias PERCENTAGE is scale-dependent -- it compares an",
                 "outcome level against an effect size, so its magnitude is a property",
-                "of this toy world, not a forecast. The scale-free findings are the",
-                "ones that transfer: our coverage is nominal, the naive estimator's is",
-                "zero, and its bias is large and positive by construction.",
-                "Phase 3 re-derives the magnitude on the real decline simulator.",
+                "of the generator it was measured on, not a forecast for live traffic.",
+                "The scale-free findings are the ones that transfer: our coverage is",
+                "nominal, the naive estimator's is far below nominal because it ships",
+                "no interval at all, and its bias is large and positive by construction.",
             ]
         )
 

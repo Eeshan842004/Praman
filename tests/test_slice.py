@@ -237,3 +237,61 @@ def test_slice_runs_against_live_opa(tmp_path):
         assert verify(conn)[0]
     finally:
         conn.close()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Throughput at the powered batch size
+# ─────────────────────────────────────────────────────────────────────────────
+@pytest.mark.slow
+def test_a_large_batch_keeps_the_chain_intact(tmp_path):
+    """Scaling the batch must not change the integrity guarantee.
+
+    The powered batch size is roughly 5x the original run, which was the point
+    at which a batched-transaction append path was considered. It was measured
+    and rejected: appends cost ~0.8 ms/entry while OPA evaluation dominates at
+    ~4.6 ms/decline, and batching would break law #4 by letting a DECISION reach
+    an ACTUATION before it was durable. This test is what makes that a decision
+    rather than an assumption -- one transaction per append, chain still intact
+    at scale.
+    """
+    import time
+
+    path = tmp_path / "big.db"
+    started = time.perf_counter()
+    result = run_batch(
+        n=6000, seed=11, ledger_path=path, client=rego_like_client(), experiment_id="throughput"
+    )
+    elapsed = time.perf_counter() - started
+
+    conn = connect(path)
+    try:
+        entries = conn.execute("SELECT COUNT(*) FROM ledger").fetchone()[0]
+        ok, broken_at, msg = verify(conn)
+    finally:
+        conn.close()
+
+    assert ok, f"chain broke at {broken_at}: {msg}"
+    assert entries > result.n_declines, "every decline writes at least a decision and an outcome"
+    # Generous: this is a regression guard against an accidental O(n^2) append,
+    # not a benchmark. The measured cost is ~0.8 ms/entry.
+    assert elapsed / entries < 0.01, f"{elapsed / entries * 1000:.2f} ms/entry is a regression"
+
+
+@pytest.mark.slow
+def test_law_4_holds_for_every_actuation_at_scale(tmp_path):
+    """A DECISION must be durable before the ACTUATION it authorises.
+
+    Expressed as an ordering over sequence numbers, which is the only thing an
+    auditor can check after the fact.
+    """
+    path = tmp_path / "law4.db"
+    run_batch(n=4000, seed=12, ledger_path=path, client=rego_like_client(), experiment_id="law4")
+    conn = connect(path)
+    try:
+        out_of_order = conn.execute(
+            "SELECT COUNT(*) FROM ledger a WHERE a.entry_type = 'ACTUATION' "
+            "AND a.decision_seq >= a.seq"
+        ).fetchone()[0]
+    finally:
+        conn.close()
+    assert out_of_order == 0
