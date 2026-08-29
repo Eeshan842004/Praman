@@ -160,23 +160,23 @@ PRIMARY . the estimator, not the outcome
 
 ```
 SECONDARY    . one powered batch (n=5,000)
-  incremental per decline ...  Rs 34.79
-  95% CI ....................  [Rs 15.91, Rs 52.71]
+  incremental per decline ...  Rs 39.03
+  95% CI ....................  [Rs 20.00, Rs 56.71]
   excludes zero .............  YES
-  sealed truth ..............  Rs 33.64   covered: YES
+  sealed truth ..............  Rs 37.14   covered: YES
 
 ILLUSTRATIVE . the underpowered batch (n=3,000), kept on purpose
-  95% CI ....................  [Rs -44.54, Rs 57.80]
-  sealed truth ..............  Rs 35.98   covered: YES
-  naive gross recovery ......  Rs 86.95   inside our interval: NO
+  95% CI ....................  [Rs -40.82, Rs 60.63]
+  sealed truth ..............  Rs 38.29   covered: YES
+  naive gross recovery ......  Rs 89.82   inside our interval: NO
 ```
 
 **Say:**
 > "Two batches. The second one is underpowered and I'm showing it anyway.
 >
 > I know it's underpowered because I computed the minimum detectable effect *before*
-> running it — at n=3,000 that's Rs 41.04, and the true effect is
-> Rs 33.79. The effect is smaller than the smallest thing that batch could
+> running it — at n=3,000 that's Rs 41.09, and the true effect is
+> Rs 36.20. The effect is smaller than the smallest thing that batch could
 > resolve. So a null result there is arithmetic. It isn't evidence of anything, and
 > I'd have been wrong to present it as either a success or a failure.
 >
@@ -196,18 +196,18 @@ ILLUSTRATIVE . the underpowered batch (n=3,000), kept on purpose
 
 ```
 $ praman verify --ledger data/ledger.db
-+ 22631 entries . chain intact (22631 entries, head 1987c167...)
++ 22912 entries . chain intact (22912 entries, head 5b186e47...)
 + 9200/9200 decisions reproduced against 2 pinned bundle(s)
-    bundle 4ca4787c0a1eea75 : entries 1-2964      (1200 decisions)
-    bundle bd45b0c7e5ce66a3 : entries 2967-22630  (8000 decisions)
-+ 0 policy violations across 4231 actuations . arms: {'holdout': 1834, 'treatment': 7366}
+    bundle 4ca4787c0a1eea75 : entries 1-2997      (1200 decisions)
+    bundle bd45b0c7e5ce66a3 : entries 3000-22911  (8000 decisions)
++ 0 policy violations across 4512 actuations . arms: {'holdout': 1834, 'treatment': 7366}
 ATTESTATION PASS
 
 $ praman tamper --ledger data/ledger.db --entry 447 --set amount_paise=99999900
   ! dropping append-only trigger to modify entry 447 (privileged act)
 $ praman verify --ledger data/ledger.db
-x CHAIN BROKEN at entry 447 (expected bd3c89c4... got 1d45544f...) -> 22184 subsequent entries invalidated
-  entry 447 of 22631
+x CHAIN BROKEN at entry 447 (expected b8bd322c... got 32075c83...) -> 22465 subsequent entries invalidated
+  entry 447 of 22912
 ATTESTATION FAIL
 ```
 

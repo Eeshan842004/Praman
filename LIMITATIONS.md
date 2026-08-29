@@ -132,14 +132,14 @@ tests on continuous features and chi-square on categoricals.
 - **Batch size is chosen by a power calculation, not by convenience.** The minimum
   detectable effect at 80% power is computed *before* a headline batch runs, from
   the estimator's own measured standard error rather than an assumed ICC. At
-  n=3,000 the MDE is ₹41.04 against a true ITT effect of ₹33.79 — that batch
+  n=3,000 the MDE is ₹41.09 against a true ITT effect of ₹36.20 — that batch
   cannot resolve its own effect, and we say so rather than presenting the
   resulting null as a finding. It is still shown, deliberately, beside the
   powered run.
 - **The 1/√n law describes this estimator only asymptotically.** The outcome is
   amount × Bernoulli over a lognormal amount, so the 20% holdout mean is driven
   by a handful of large recoveries and its variance is itself heavy-tailed. A
-  fitted 1/√n curve missed the measured MDE at n=3,000 by 33% even at 8–12 runs
+  fitted 1/√n curve missed the measured MDE at n=3,000 by 31% even at 8–12 runs
   per grid point. We therefore choose n from the measured grid and report the fit
   only as a cross-check, taking whichever rule is more conservative.
 - **The effect size is fixed and hash-pinned.** Powering an experiment means
