@@ -14,9 +14,37 @@ from pathlib import Path
 import pytest
 
 from praman.cli import main
+from praman.kernel.ladder import DeclineContext, build_policy_input
 from praman.ledger.chain import append, connect
 from praman.ledger.records import DecisionRecord
 from praman.taxonomy import CAUSES
+
+# A decline the frozen policy allows at T1: soft cause, confident, every counter
+# clear. Seeded rows carry the REAL input rather than `{}` so `verify` exercises
+# its full default path -- chain plus replay against the committed bundle. A
+# fixture that stores no input can only ever test half the command.
+_ALLOWED_T1_INPUT = build_policy_input(
+    DeclineContext(
+        cause="INSUFFICIENT_FUNDS",
+        max_posterior=0.9,
+        rail="card",
+        amount_paise=100_000,
+        network_category=2,
+        merchant_advice_code=None,
+        npci_retry_remark=None,
+        attempts_30d=0,
+        attempts_this_payment=0,
+        bin_attempts_1h=0,
+        customer_nudges_7d=0,
+        is_emandate=False,
+        afa_completed=False,
+        ms_since_pre_debit_notice=90_000_000,
+        ist_hour=9,
+        has_alternate_instrument=True,
+    ),
+    "T1",
+)
+_POSTERIOR = {c: (0.9 if c == "INSUFFICIENT_FUNDS" else 0.1 / 8) for c in CAUSES}
 
 
 def _seed(path: Path, n: int = 25) -> None:
@@ -37,14 +65,14 @@ def _seed(path: Path, n: int = 25) -> None:
                     symbol="05",
                     region="IN",
                     cause="INSUFFICIENT_FUNDS",
-                    posterior=dict.fromkeys(CAUSES, 1 / 9),
+                    posterior=_POSTERIOR,
                     attribution_source="heuristic",
                     attribution_version="taxonomy-v1",
                     tier="T1",
                     tier_evaluations={"T1": []},
                     opa_allow=True,
                     deny_reasons=[],
-                    policy_input={},
+                    policy_input=_ALLOWED_T1_INPUT,
                     bundle_revision="4ca4787c0a1eea75",
                     decision_id=f"dec_{i:06d}",
                     amount_paise=100000 + i,
@@ -319,3 +347,34 @@ def test_verify_groups_bundles_over_decisions_only(tmp_path, capsys, monkeypatch
     out = capsys.readouterr().out
     assert "bundle None" not in out
     assert "mockrev00000001" in out
+
+
+def test_verify_replays_against_the_pinned_bundle_by_default(tmp_path, capsys):
+    """Demo Beat 5. `verify` must re-derive decisions, not merely count them.
+
+    The seeded rows carry a real policy input pinned to the committed bundle, so
+    a green run here means OPA actually re-evaluated every one of them.
+    """
+    p = tmp_path / "ledger.db"
+    _seed(p, n=10)
+    rc = main(["verify", "--ledger", str(p)])
+    out = capsys.readouterr().out
+    assert rc == 0, out
+    assert "10/10 decisions reproduced" in out or "replay skipped" in out
+    if "replay skipped" not in out:
+        assert "4ca4787c0a1eea75" in out
+
+
+def test_no_replay_claims_nothing_it_did_not_check(tmp_path, capsys):
+    """The bug this replaces printed "N/N decisions reproduced" off a GROUP BY.
+
+    With replay off, the word must not appear at all -- a chain check is a real
+    claim, but it is not that claim.
+    """
+    p = tmp_path / "ledger.db"
+    _seed(p, n=10)
+    rc = main(["verify", "--ledger", str(p), "--no-replay"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "reproduced" not in out
+    assert "chain intact" in out

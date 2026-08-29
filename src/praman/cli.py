@@ -19,6 +19,7 @@ from pathlib import Path
 
 from praman.kernel.opa_client import PolicyClient
 from praman.ledger.chain import FIELDS, connect, verify
+from praman.ledger.replay import replay_ledger
 from praman.measure.assign import DEFAULT_HOLDOUT_PCT
 from praman.measure.harness import validate_estimator
 from praman.slice_runner import run_batch
@@ -58,24 +59,24 @@ def _cmd_verify(args: argparse.Namespace) -> int:
 
         print(f"+ {count} entries . {msg}")
 
-        # Grouping by revision is what proves we can audit a policy CHANGE and
-        # not merely a policy: each span replays against the bundle that
-        # actually authorised it. Only DECISION rows carry a revision -- an
-        # actuation is not authorised, the decision behind it was.
-        decisions = conn.execute(
-            "SELECT COUNT(*) FROM ledger WHERE entry_type = 'DECISION'"
-        ).fetchone()[0]
-        spans = conn.execute(
-            "SELECT bundle_revision, COUNT(*), MIN(seq), MAX(seq) FROM ledger "
-            "WHERE entry_type = 'DECISION' GROUP BY bundle_revision ORDER BY MIN(seq)"
-        ).fetchall()
-        if spans:
-            print(
-                f"+ {decisions}/{decisions} decisions reproduced across "
-                f"{len(spans)} pinned bundle(s)"
-            )
-            for rev, n, lo, hi in spans:
-                print(f"    bundle {rev} : entries {lo}-{hi}  ({n})")
+        # ── Replay ───────────────────────────────────────────────────────────
+        # The chain proves nothing was changed after the fact. It CANNOT prove
+        # the record was true when written: a writer that bypassed OPA and
+        # recorded its own verdict appends through the normal path and hashes
+        # perfectly. So every stored policy input is re-POSTed to OPA loaded
+        # with the bundle that authorised it, and the verdict is compared.
+        #
+        # This block previously printed "N/N decisions reproduced" off a GROUP
+        # BY. Nothing was reproduced; the word was unearned. The line now prints
+        # only when a replay actually ran.
+        if args.replay:
+            replayed = replay_ledger(conn, opa_binary=args.opa)
+            print(replayed.render())
+            if replayed.ran and not replayed.ok:
+                print("ATTESTATION FAIL")
+                return EXIT_FAIL
+        else:
+            print("~ replay disabled: chain checked, policy NOT re-derived")
 
         # A violation is an ACTUATION that executed without an authorising
         # allow. A refusal is not a violation -- refusing is the kernel working.
@@ -242,9 +243,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    v = sub.add_parser("verify", help="replay and attest the ledger's hash chain")
+    v = sub.add_parser("verify", help="attest the hash chain AND replay every decision")
     v.add_argument("--ledger", default="data/ledger.db")
-    v.set_defaults(func=_cmd_verify)
+    v.add_argument(
+        "--no-replay",
+        dest="replay",
+        action="store_false",
+        help="check the hash chain only; do not re-derive decisions from policy",
+    )
+    v.add_argument(
+        "--opa", default=None, help="path to the opa binary (default: tools/, then PATH)"
+    )
+    v.set_defaults(func=_cmd_verify, replay=True)
 
     t = sub.add_parser("tamper", help="deliberately corrupt one entry, to prove verify works")
     t.add_argument("--ledger", default="data/ledger.db")

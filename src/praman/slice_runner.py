@@ -197,9 +197,13 @@ def run_batch(
                     attribution_version=ATTRIBUTION_VERSION,
                     tier=ladder.selected_tier,
                     tier_evaluations=ladder.as_tier_evaluations(),
-                    opa_allow=ladder.is_action,
-                    deny_reasons=ladder.selected_deny_reasons,
-                    policy_input=ladder.selected_policy_input,
+                    # The input, the verdict and the deny-set describe ONE tier
+                    # (see LadderOutcome.recorded_tier) so that `praman verify`
+                    # can re-POST the input to the pinned bundle and compare.
+                    # `opa_allow` is what POLICY said, not whether we acted.
+                    opa_allow=ladder.recorded_opa_allow,
+                    deny_reasons=ladder.recorded_deny_reasons,
+                    policy_input=ladder.recorded_policy_input,
                     bundle_revision=ladder.bundle_revision,
                     decision_id=ladder.decision_id,
                     amount_paise=d.amount_paise,

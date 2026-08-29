@@ -105,22 +105,45 @@ class LadderOutcome:
                 return e.decision_id
         return None
 
+    # ── What goes on the DECISION row ────────────────────────────────────────
+    # These three MUST describe the same tier. The ledger stores one input, one
+    # verdict and one deny-set, and `praman verify` re-POSTs that input to the
+    # pinned bundle and compares it against that verdict. If they described
+    # different tiers, every replay would diverge and the attestation would be
+    # measuring our own inconsistency rather than the policy.
+
     @property
-    def selected_deny_reasons(self) -> list[str]:
-        ev = self.evaluations.get(self.selected_tier)
+    def recorded_tier(self) -> str:
+        """The tier the DECISION row describes.
+
+        Normally the selected one. T0 is never queried -- doing nothing needs no
+        authorisation -- so a terminated decline records the first tier we DID
+        ask about, which is what lets an auditor confirm the denial was correct.
+        """
+        if self.selected_tier in self.policy_inputs:
+            return self.selected_tier
+        return next(iter(self.policy_inputs), self.selected_tier)
+
+    @property
+    def recorded_policy_input(self) -> dict[str, Any]:
+        return self.policy_inputs.get(self.recorded_tier, {})
+
+    @property
+    def recorded_deny_reasons(self) -> list[str]:
+        ev = self.evaluations.get(self.recorded_tier)
         return list(ev.deny_reasons) if ev else []
 
     @property
-    def selected_policy_input(self) -> dict[str, Any]:
-        """Input for the tier we acted on.
+    def recorded_opa_allow(self) -> bool:
+        """OPA's verdict for `recorded_tier` -- NOT whether we acted.
 
-        T0 is never queried -- doing nothing needs no authorisation -- so for a
-        terminated decline we persist the first tier we DID ask about, which is
-        what lets an auditor confirm the denial was correct.
+        These differ on purpose. T4 is authorised but is not a money action, so
+        it allows without actuating; `is_action` answers "did we do something",
+        this answers "what did the policy say". Conflating them made the stored
+        verdict unreplayable for every T0 and T4 row.
         """
-        if self.selected_tier in self.policy_inputs:
-            return self.policy_inputs[self.selected_tier]
-        return next(iter(self.policy_inputs.values()), {})
+        ev = self.evaluations.get(self.recorded_tier)
+        return bool(ev.allow) if ev else False
 
     def as_tier_evaluations(self) -> dict[str, list[str]]:
         """Shape the ledger stores: tier -> deny reasons."""
@@ -188,46 +211,35 @@ def evaluate_ladder(ctx: DeclineContext, client: PolicyClient) -> LadderOutcome:
     meta = load_taxonomy().cause_meta(ctx.cause)
     proposed = _candidates(ctx)
 
-    if meta.cause_class == "hard":
+    # Every exit carries the evidence, by construction. When each `return` built
+    # its own LadderOutcome, the allow path omitted `policy_inputs` -- so the
+    # ONLY decisions that ever reached actuation were the ones that stored an
+    # empty policy input, and replay attestation had nothing to replay on
+    # precisely the rows that authorised money movement. A single constructor
+    # makes that omission unrepresentable rather than merely fixed.
+    def outcome(tier: str, is_action: bool, reason: str) -> LadderOutcome:
         return LadderOutcome(
-            selected_tier="T0",
-            is_action=False,
-            reason=f"{ctx.cause} is a hard decline; no action is legal",
+            selected_tier=tier,
+            is_action=is_action,
+            reason=reason,
             proposed_tiers=proposed,
             evaluations=evaluations,
             policy_inputs=policy_inputs,
         )
+
+    if meta.cause_class == "hard":
+        return outcome("T0", False, f"{ctx.cause} is a hard decline; no action is legal")
 
     for tier in proposed:
         if evaluations[tier].allow:
-            return LadderOutcome(
-                selected_tier=tier,
-                is_action=True,
-                reason=f"policy allowed {TIER_ACTION[tier]}",
-                proposed_tiers=proposed,
-                evaluations=evaluations,
-            )
+            return outcome(tier, True, f"policy allowed {TIER_ACTION[tier]}")
 
     if evaluations["T4"].allow:
-        return LadderOutcome(
-            selected_tier="T4",
-            is_action=False,
-            reason="every permitted action was denied; escalating to a human",
-            proposed_tiers=proposed,
-            evaluations=evaluations,
-            policy_inputs=policy_inputs,
-        )
+        return outcome("T4", False, "every permitted action was denied; escalating to a human")
 
     # Nothing is legal, including escalation -- which is what an unreachable
     # policy engine looks like. Terminate; never act on an unauthorised path.
-    return LadderOutcome(
-        selected_tier="T0",
-        is_action=False,
-        reason="no tier authorised; terminating",
-        proposed_tiers=proposed,
-        evaluations=evaluations,
-        policy_inputs=policy_inputs,
-    )
+    return outcome("T0", False, "no tier authorised; terminating")
 
 
 __all__ = [
