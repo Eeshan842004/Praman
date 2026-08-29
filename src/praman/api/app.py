@@ -10,6 +10,7 @@ from fastapi import FastAPI, Response
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from praman.config import settings
+from praman.ingest.router import build_webhook_router
 
 
 def configure_logging() -> None:
@@ -54,8 +55,17 @@ def create_app() -> FastAPI:
     async def metrics() -> Response:
         return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
-    # Phase 1 attaches the webhook router here. The factory stays stable so that
-    # later phases add routes without touching startup, logging, or metrics.
+    # Ingest. Mounted unconditionally, INCLUDING when no secret is configured:
+    # with an empty secret every signature check fails and the endpoint answers
+    # 401 to everything. Conditionally mounting it would answer 404 instead,
+    # which reads as "wrong URL" during a live demo rather than "you have not
+    # set RAZORPAY_WEBHOOK_SECRET". Fail closed, and fail legibly.
+    app.include_router(
+        build_webhook_router(
+            secret=settings.razorpay_webhook_secret,
+            ingest_path=settings.ingest_abspath,
+        )
+    )
 
     return app
 

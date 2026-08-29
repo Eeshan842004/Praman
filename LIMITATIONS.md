@@ -147,7 +147,25 @@ tests on continuous features and chi-square on categoricals.
   recovery rates change, so tuning the generator until the interval excludes zero
   cannot happen quietly.
 
-## 10. Scope boundaries
+## 10. BIN velocity cannot be enforced from webhook data alone
+
+`payment.failed` exposes the card's `last4`, network and issuer — **not the
+BIN**. So `bin_attempts_1h` cannot be computed from a Razorpay payload, and the
+worker passes 0.
+
+This one deserves naming separately from the other missing fields, because it
+behaves differently. `afa_completed` and `ms_since_pre_debit_notice` are also
+absent, and both default to the value that **denies** — a high-value e-mandate
+cannot be retried on data we never received. But 0 does not deny a velocity cap.
+It satisfies it.
+
+So this is an enforcement **gap**, not a conservative default, and it is stated
+here rather than hidden behind a plausible-looking zero. Closing it requires the
+merchant's own attempt log keyed by BIN, which the simulator has and the live
+webhook path does not. In the batch pipeline the counter is computed properly
+and the rule is enforced.
+
+## 11. Scope boundaries
 
 Not built, deliberately: authentication, multi-tenancy, RBAC, real-time streaming,
 live multi-processor integrations, mobile, or email/SMS delivery. Portability

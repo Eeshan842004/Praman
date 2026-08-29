@@ -42,6 +42,11 @@ class Settings(BaseSettings):
 
     # ── Storage ──────────────────────────────────────────────────────────────
     ledger_path: Path = Path("data/ledger.db")
+    # The delivery log is deliberately a SEPARATE file from the ledger. The
+    # ledger is evidence: append-only, hash-chained, every column inside the
+    # hash. The delivery log has a mutable `processed` flag, so keeping them in
+    # one file would invite the very question the evidence file exists to close.
+    ingest_path: Path = Path("data/ingest.db")
 
     # ── Experiment (law #8) ──────────────────────────────────────────────────
     # Changing experiment_id re-randomises every arm assignment. Immutable once
@@ -60,6 +65,11 @@ class Settings(BaseSettings):
     @property
     def ledger_abspath(self) -> Path:
         p = self.ledger_path
+        return p if p.is_absolute() else (REPO_ROOT / p)
+
+    @property
+    def ingest_abspath(self) -> Path:
+        p = self.ingest_path
         return p if p.is_absolute() else (REPO_ROOT / p)
 
 

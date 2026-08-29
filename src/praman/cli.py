@@ -17,6 +17,8 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+from praman.ingest.store import connect_ingest, pending
+from praman.ingest.worker import process_pending
 from praman.kernel.opa_client import PolicyClient
 from praman.ledger.chain import FIELDS, connect, verify
 from praman.ledger.replay import replay_ledger
@@ -381,6 +383,36 @@ def _cmd_report(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_process_webhooks(args: argparse.Namespace) -> int:
+    """Drain accepted webhook deliveries into ledger decisions.
+
+    Separate from the endpoint on purpose. The request path acknowledges and
+    stops; everything that thinks runs here, because a slow acknowledgement
+    becomes a Razorpay redelivery and a redelivery that reached the attempt
+    counter is a regulatory problem, not a latency one (S2).
+    """
+    conn = connect_ingest(args.ingest)
+    try:
+        queued = len(pending(conn))
+        if not queued:
+            print("+ nothing pending")
+            return EXIT_OK
+        seqs = process_pending(
+            conn,
+            args.ledger,
+            client=_batch_client(),
+            experiment_id=args.experiment_id,
+            holdout_pct=args.holdout_pct,
+        )
+    finally:
+        conn.close()
+
+    print(f"+ {len(seqs)} of {queued} deliveries became ledger decisions")
+    if seqs:
+        print(f"  entries {min(seqs)}-{max(seqs)} . verify: praman verify --ledger {args.ledger}")
+    return EXIT_OK
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="praman",
@@ -444,6 +476,16 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--holdout-pct", type=int, default=DEFAULT_HOLDOUT_PCT)
     r.add_argument("--ledger-dir", default="data")
     r.set_defaults(func=_cmd_report)
+
+    w = sub.add_parser(
+        "process-webhooks",
+        help="turn accepted webhook deliveries into ledger decisions",
+    )
+    w.add_argument("--ingest", default="data/ingest.db")
+    w.add_argument("--ledger", default="data/ledger.db")
+    w.add_argument("--experiment-id", default="praman-v1")
+    w.add_argument("--holdout-pct", type=int, default=DEFAULT_HOLDOUT_PCT)
+    w.set_defaults(func=_cmd_process_webhooks)
 
     p = sub.add_parser(
         "power",
