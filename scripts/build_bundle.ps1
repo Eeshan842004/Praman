@@ -19,11 +19,14 @@ New-Item -ItemType Directory -Force -Path (Join-Path $root 'dist') | Out-Null
 # Two deliberate exclusions:
 #   revision/data.json -- contains the revision itself; including it would be
 #     self-referential and the hash would never stabilise.
-#   *_test.rego -- opa build excludes tests from the bundle, so they are not part
-#     of what OPA evaluates. Including them would mint a NEW revision for a
-#     test-only edit while runtime behaviour is byte-identical, which is exactly
-#     the noise law #6 exists to eliminate. The revision must identify the policy
-#     that RAN, nothing else.
+#   *_test.rego -- tests are not part of what OPA evaluates, so including them
+#     would mint a NEW revision for a test-only edit while runtime behaviour is
+#     byte-identical -- exactly the noise law #6 exists to eliminate. The
+#     revision must identify the policy that RAN, nothing else.
+#     `opa build` does NOT drop test files on its own (the tarball carried
+#     retry_test.rego for revision 4ca4787c), which meant the bundle held a file
+#     the revision did not cover. --ignore closes that gap, so the revision now
+#     identifies the bundle exactly rather than approximately.
 #
 # MUST agree byte-for-byte with build_bundle.sh, which CI runs. Two things make
 # that true and are easy to get wrong:
@@ -58,7 +61,7 @@ $json = @{ revision = $rev } | ConvertTo-Json -Compress
 
 # ── Build ────────────────────────────────────────────────────────────────────
 $out = Join-Path $root "dist\bundle-$rev.tar.gz"
-& $opa build -b policy/ -o $out --revision $rev
+& $opa build -b policy/ --ignore '*_test.rego' -o $out --revision $rev
 if ($LASTEXITCODE -ne 0) { Write-Error "opa build failed ($LASTEXITCODE)" }
 
 Write-Host "pinned $rev  ->  dist/bundle-$rev.tar.gz" -ForegroundColor Green

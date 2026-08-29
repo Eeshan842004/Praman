@@ -39,7 +39,7 @@ REV="$(
 
 printf '{"revision":"%s"}\n' "$REV" > policy/revision/data.json
 
-"$OPA" build -b policy/ -o "dist/bundle-$REV.tar.gz" --revision "$REV"
+"$OPA" build -b policy/ --ignore '*_test.rego' -o "dist/bundle-$REV.tar.gz" --revision "$REV"
 
 echo "pinned $REV  ->  dist/bundle-$REV.tar.gz"
 echo "  git add dist/bundle-$REV.tar.gz policy/revision/data.json"

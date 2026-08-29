@@ -47,13 +47,21 @@ def rego_like_client() -> PolicyClient:
             deny.append("low_confidence")
         if inp["tier"] == "T2" and not inp["has_alternate_instrument"]:
             deny.append("no_alternate_instrument")
+
+        # T4 -- routing to the merchant's own ops queue -- is neither a debit
+        # nor a customer contact, so nothing in the policy has jurisdiction over
+        # it. Mirrors the single exemption point in retry.rego. Without this the
+        # mock and the real kernel disagree about the one tier that guarantees
+        # the ladder always has a legal terminal state.
+        binding = [] if inp["tier"] == "T4" else deny
         return httpx.Response(
             200,
             json={
                 "decision_id": "mock-decision",
                 "result": {
-                    "allow": len(deny) == 0,
-                    "deny_reason": sorted(deny),
+                    "allow": len(binding) == 0,
+                    "deny_reason": sorted(binding),
+                    "rule_fired": sorted(deny),
                     "bundle_revision": "mockrev00000001",
                 },
             },

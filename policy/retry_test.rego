@@ -201,3 +201,77 @@ test_regulatory_deadlock_denies if {
 test_bundle_revision_is_echoed if {
 	retry.bundle_revision == "test-rev-abc" with data.revision as {"revision": "test-rev-abc"}
 }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ★ T4 IS UNCONDITIONALLY LEGAL
+#
+# If every tier including T4 can deny, the ladder has no legal terminal state
+# and the orchestrator is undefined at exactly the moment it matters most.
+# Escalating to the merchant's own ops queue is neither a debit nor a customer
+# contact, so no rule in this policy has jurisdiction over it.
+#
+# These tests are the enforcement mechanism for that carve-out. The exemption
+# lives in one place in retry.rego; a rule added later that forgets it fails
+# here rather than silently stranding the orchestrator in production.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# The four-regulator deadlock, verbatim from Demo Beat 3.
+deadlock := object.union(base, {
+	"is_emandate": true,
+	"amount_paise": 2200000,
+	"rail": "upi_autopay",
+	"ist_hour": 11,
+	"customer_nudges_7d": 2,
+	"ms_since_pre_debit_notice": 1000,
+})
+
+# Every rule that is not tier-scoped, firing at once.
+worst_case := object.union(deadlock, {
+	"cause_class": "hard",
+	"network_category": 1,
+	"merchant_advice_code": "03",
+	"npci_retry_remark": "do_not_reinitiate",
+	"attempts_30d": 99,
+	"attempts_this_payment": 9,
+	"bin_attempts_1h": 99,
+	"max_posterior": "0.010000",
+})
+
+test_t4_is_allowed_in_the_regulatory_deadlock if {
+	retry.allow with input as object.union(deadlock, {"tier": "T4"}) with data.config as cfg
+}
+
+test_t4_is_allowed_when_every_rule_fires if {
+	retry.allow with input as object.union(worst_case, {"tier": "T4"}) with data.config as cfg
+}
+
+test_t4_binds_no_deny_reason_even_at_worst_case if {
+	reasons := retry.deny_reason with input as object.union(worst_case, {"tier": "T4"})
+		with data.config as cfg
+	count(reasons) == 0
+}
+
+# The audit trail must not go blank just because nothing binds. `rule_fired`
+# keeps the complete picture, which is what makes the deadlock legible.
+test_t4_still_records_what_fired if {
+	fired := retry.rule_fired with input as object.union(worst_case, {"tier": "T4"})
+		with data.config as cfg
+	"hard_decline" in fired
+	"visa_cat1" in fired
+	"mac_03" in fired
+	"npci_no_retry" in fired
+	"visa_network_cap" in fired
+	"per_payment_cap" in fired
+	"bin_velocity" in fired
+	"rbi_afa_required" in fired
+	"rbi_pre_debit_notice_not_elapsed" in fired
+	"npci_autopay_blackout_window" in fired
+}
+
+# The exemption must not leak. Same input, an actionable tier, still denied.
+test_the_t4_exemption_does_not_leak_to_actionable_tiers if {
+	not retry.allow with input as object.union(worst_case, {"tier": "T1"}) with data.config as cfg
+	not retry.allow with input as object.union(worst_case, {"tier": "T2"}) with data.config as cfg
+	not retry.allow with input as object.union(worst_case, {"tier": "T3"}) with data.config as cfg
+	not retry.allow with input as object.union(worst_case, {"tier": "T0"}) with data.config as cfg
+}
