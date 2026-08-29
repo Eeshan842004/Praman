@@ -23,21 +23,10 @@ import numpy as np
 import pytest
 
 from praman.attribution.bayes import heuristic_posterior, information_report
+from praman.attribution.featurize import FEATURE_SPEC, to_frame
+from praman.attribution.model import GATE1_MIN_AUC, AttributionModel, train_attribution_model
 from praman.sim.generator import generate_batch
 from praman.taxonomy import CAUSES
-
-# These tests are a written SPEC for Phase 4 item 5, which is scheduled last.
-# They skip until the modules exist rather than breaking collection, so the
-# suite stays green and the spec stays visible.
-pytest.importorskip("praman.attribution.featurize", reason="Phase 4 model not built yet")
-pytest.importorskip("praman.attribution.model", reason="Phase 4 model not built yet")
-
-from praman.attribution.featurize import FEATURE_SPEC, to_frame
-from praman.attribution.model import (
-    GATE1_MIN_AUC,
-    AttributionModel,
-    train_attribution_model,
-)
 
 
 @pytest.fixture(scope="module")

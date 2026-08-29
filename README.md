@@ -46,7 +46,12 @@ Praman closes both gaps.
 4. **Measures honestly.** It does not claim recovered revenue. It validates its
    *estimator* against 200 simulated worlds with sealed ground truth, reporting
    bias, RMSE, and 95% CI coverage — beside the same statistics for the naive
-   gross-recovery estimator everyone else reports.
+   gross-recovery estimator everyone else reports. Batch size is set by a power
+   calculation before the run, not chosen after seeing the result.
+5. **Knows when its own model is not worth shipping.** Gate 1 trained LightGBM,
+   measured it against the heuristic on the same batch, and shipped the
+   heuristic — the model was more confident and less informative. The reasoning
+   is in [`docs/GATE_LOG.md`](docs/GATE_LOG.md).
 
 ## Architectural law
 
@@ -124,7 +129,7 @@ configuration, not constants.
 | 1 | Canonical taxonomy + likelihood matrix | ✅ (ingest pending Razorpay keys) |
 | 2 | Ledger + replay attestation | ✅ |
 | 3 | Causal simulator with sealed potential outcomes | ✅ |
-| 4 | Attribution + Information Capture Ratio | ◻ |
+| 4 | Attribution + Information Capture Ratio | ✅ (Gate 1: heuristic ships — [`GATE_LOG.md`](docs/GATE_LOG.md)) |
 | 5 | Policy bundle attestation + replay | ✅ |
 | 6 | Orchestrator + logical clock | ✅ (escalation ladder T0–T4) |
 | 7 | Estimator validation harness | ✅ (scored on the real simulator) |

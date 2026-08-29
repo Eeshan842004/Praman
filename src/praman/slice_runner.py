@@ -27,8 +27,15 @@ from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import numpy as np
+
 from praman.kernel.counters import WINDOW_1H, WINDOW_7D, WINDOW_30D, WindowedCounters
-from praman.kernel.ladder import TIER_ACTION, DeclineContext, evaluate_ladder
+from praman.kernel.ladder import (
+    ACTIONABLE_TIERS,
+    TIER_ACTION,
+    DeclineContext,
+    evaluate_ladder,
+)
 from praman.kernel.opa_client import PolicyClient
 from praman.ledger.chain import append, connect
 from praman.ledger.records import ActuationRecord, DecisionRecord, OutcomeRecord
@@ -37,7 +44,7 @@ from praman.measure.from_ledger import estimate_from_ledger, naive_gross_from_le
 from praman.measure.harness import Estimate
 from praman.metrics import ATTRIBUTION_CONFIDENCE, DECISIONS, POLICY_VIOLATIONS
 from praman.sim.generator import DeclineBatch, SyntheticDecline, generate_batch
-from praman.taxonomy import Observation, load_taxonomy
+from praman.taxonomy import CAUSES, Observation, load_taxonomy
 
 ATTRIBUTION_VERSION = "taxonomy-v1"
 RETRY_DELAY_MS = 6 * 60 * 60 * 1000  # placeholder for the Phase 6 hazard model
@@ -54,6 +61,13 @@ class RunResult:
     n_actuated: int = 0
     policy_violations: int = 0
     tier_counts: dict[str, int] = field(default_factory=dict)
+    # Declines where the confidence floor blocked at least one actionable tier.
+    # This is the number a better attribution model has to move: it is the
+    # kernel refusing to act on a guess, so it measures how often the model was
+    # too unsure to be allowed to help.
+    low_confidence_declines: int = 0
+    deny_reason_counts: Counter[str] = field(default_factory=Counter)
+    attribution_source: str = "heuristic"
     true_itt_paise: float = 0.0
     naive_gross_paise: float = 0.0
     estimate: Estimate | None = None
@@ -124,13 +138,28 @@ def run_batch(
     holdout_pct: int = DEFAULT_HOLDOUT_PCT,
     region: str = "IN",
     batch: DeclineBatch | None = None,
+    posteriors: np.ndarray | None = None,
+    attribution_source: str = "heuristic",
+    attribution_version: str = ATTRIBUTION_VERSION,
 ) -> RunResult:
+    """Run the pipeline over a batch.
+
+    `posteriors` lets a caller supply attribution from somewhere other than the
+    taxonomy -- an (n, 9) array aligned with `batch.declines`. That is what makes
+    the Phase 4 ablation possible: the SAME batch, the same policy, the same
+    seeds, with only the attribution swapped, so any difference in tiers or
+    recovery is attributable to the model and nothing else.
+    """
     tax = load_taxonomy()
     batch = batch or generate_batch(n=n, seed=seed, region=region)
     client = client or PolicyClient()
     conn = connect(ledger_path)
 
-    result = RunResult(experiment_id=experiment_id, ledger_path=Path(ledger_path))
+    result = RunResult(
+        experiment_id=experiment_id,
+        ledger_path=Path(ledger_path),
+        attribution_source=attribution_source,
+    )
     tiers: Counter[str] = Counter()
 
     # Law #7: these advance ONLY when an actuation executes -- and they are
@@ -142,9 +171,11 @@ def run_batch(
     actioned: dict[str, bool] = {}
 
     try:
-        for d in batch.declines:
-            obs = _observation(d)
-            posterior = tax.posterior(obs, region=region)
+        for i, d in enumerate(batch.declines):
+            if posteriors is None:
+                posterior = tax.posterior(_observation(d), region=region)
+            else:
+                posterior = dict(zip(CAUSES, (float(x) for x in posteriors[i]), strict=True))
             cause = max(posterior, key=lambda c: posterior[c])
             confidence = posterior[cause]
             ATTRIBUTION_CONFIDENCE.observe(confidence)
@@ -173,8 +204,16 @@ def run_batch(
             # for the holdout too -- otherwise there is no way to show a
             # reviewer the arms were comparable. Only the ACTION is withheld.
             ladder = evaluate_ladder(ctx, client)
+            blocked_by_confidence = False
             arm = assign_arm(experiment_id, d.customer_id, holdout_pct)
             tiers[ladder.selected_tier] += 1
+            for tier, ev in ladder.evaluations.items():
+                for reason in ev.deny_reasons:
+                    result.deny_reason_counts[reason] += 1
+                if tier in ACTIONABLE_TIERS and "low_confidence" in ev.deny_reasons:
+                    blocked_by_confidence = True
+            if blocked_by_confidence:
+                result.low_confidence_declines += 1
             DECISIONS.labels(tier=ladder.selected_tier, allow=str(ladder.is_action).lower()).inc()
 
             # ---- Law #4: record BEFORE acting -------------------------------
@@ -193,8 +232,8 @@ def run_batch(
                     region=region,
                     cause=cause,
                     posterior=posterior,
-                    attribution_source="heuristic",
-                    attribution_version=ATTRIBUTION_VERSION,
+                    attribution_source=attribution_source,
+                    attribution_version=attribution_version,
                     tier=ladder.selected_tier,
                     tier_evaluations=ladder.as_tier_evaluations(),
                     # The input, the verdict and the deny-set describe ONE tier

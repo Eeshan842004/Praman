@@ -114,9 +114,36 @@ class Taxonomy:
         return dict(self._symbol_meta.get(symbol, {}))
 
     # ── the model ───────────────────────────────────────────────────────────
+    def rail_key(self, rail: str) -> str:
+        """Map a rail to the emission family it shares.
+
+        `upi_autopay` is a MANDATE executed on the UPI rail -- NPCI returns the
+        same response codes -- so it shares UPI's emission matrix rather than
+        having one of its own.
+
+        Treating it as a rail in its own right was a real bug with two heads.
+        `likelihood()` found no matching block, fell back to the flat "this
+        observation carries no information" vector, and discarded the decline
+        code for EVERY AutoPay decline: the posterior collapsed to the prior,
+        max_posterior 0.26 fell under the 0.40 confidence floor, and the kernel
+        refused every automated tier. It also inflated H(C|X) in the Bayes
+        ceiling, shrinking the ICR denominator until a trained model could score
+        above 1.0 -- extracting more information than the generator says exists.
+
+        Prefix matching against the loaded matrix, not a hardcoded list, so a
+        new rail family is a data change. A genuinely unknown rail still yields
+        a flat likelihood, which is the correct answer for one.
+        """
+        if rail in self._emissions:
+            return rail
+        for known in self._emissions:
+            if rail.startswith(known):
+                return known
+        return rail
+
     def emissions(self, rail: str, cause: str) -> dict[str, float]:
         """P(symbol | cause, rail)."""
-        return dict(self._emissions.get(rail, {}).get(cause, {}))
+        return dict(self._emissions.get(self.rail_key(rail), {}).get(cause, {}))
 
     def prior(self, region: str) -> dict[str, float]:
         """P(cause) for a region."""
@@ -130,7 +157,7 @@ class Taxonomy:
         correctly says "this observation carries no information", so the
         posterior falls back to the prior.
         """
-        rail_block = self._emissions.get(obs.rail, {})
+        rail_block = self._emissions.get(self.rail_key(obs.rail), {})
         symbol_is_known = any(obs.symbol in rail_block.get(c, {}) for c in CAUSES)
 
         out: dict[str, float] = {}

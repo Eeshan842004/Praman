@@ -207,3 +207,55 @@ def test_unknown_symbol_does_not_crash_and_stays_uninformative(tax: Taxonomy):
 def test_unknown_rail_does_not_crash(tax: Taxonomy):
     post = tax.posterior(_obs(rail="carrier_billing", symbol="05"), region="IN")
     assert math.isclose(sum(post.values()), 1.0, abs_tol=1e-9)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Rail families — the bug that silently disarmed AutoPay attribution
+# ─────────────────────────────────────────────────────────────────────────────
+def test_upi_autopay_shares_the_upi_emission_matrix():
+    """`upi_autopay` is a mandate executed on the UPI rail; NPCI returns the
+    same response codes, so it has no emission matrix of its own.
+
+    Treated as a rail in its own right, `likelihood()` found no block and fell
+    back to the flat "carries no information" vector -- discarding the decline
+    code for every AutoPay decline. The posterior collapsed to the prior, and
+    max_posterior 0.26 sits under the 0.40 confidence floor, so the kernel
+    refused every automated tier on a rail whose code it had simply thrown away.
+    """
+    tax = load_taxonomy()
+    assert tax.rail_key("upi_autopay") == "upi"
+
+    upi = tax.posterior(Observation(rail="upi", symbol="Z9"))
+    autopay = tax.posterior(Observation(rail="upi_autopay", symbol="Z9"))
+    assert autopay == upi
+    assert max(autopay.values()) > 0.9, "the decline code must not be discarded"
+
+
+def test_a_known_rail_maps_to_itself():
+    tax = load_taxonomy()
+    for rail in tax.rails():
+        assert tax.rail_key(rail) == rail
+
+
+def test_an_unknown_rail_still_yields_a_flat_likelihood():
+    """Flat is the CORRECT answer for a rail we have no emission matrix for --
+    it says "this observation carries no information" rather than inventing
+    some. The bug was applying that answer to a rail we do understand."""
+    tax = load_taxonomy()
+    lik = tax.likelihood(Observation(rail="sepa_direct_debit", symbol="Z9"))
+    assert len(set(lik.values())) == 1
+
+
+def test_the_bayes_ceiling_cannot_be_beaten():
+    """The ICR's denominator comes from H(C|X) under the true generator, so an
+    ICR above 1.0 means the ceiling is wrong, not that the model is brilliant.
+
+    The rail bug inflated H(C|X), shrank the denominator, and let a trained
+    model score 1.038 -- extracting more information than exists.
+    """
+    from praman.attribution.bayes import bayes_posterior, information_report
+    from praman.sim.generator import generate_batch
+
+    batch = generate_batch(n=3000, seed=17)
+    icr = information_report(batch, bayes_posterior(batch)).icr
+    assert 0.97 <= icr <= 1.03, f"Bayes ICR {icr:.4f} is not the ceiling it claims to be"

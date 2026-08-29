@@ -33,24 +33,58 @@
 **Do:** Fire a real Razorpay test-mode failure. Webhook lands.
 
 **Show:**
-- Terminal: `200 OK` in under 20 ms (ack-before-think)
-- Dashboard: observed tuple → likelihood vector → **calibrated posterior over 9 causes**
-- The top features behind this decision
+- Terminal: `200 OK` — measured p99 **1.46 ms** over a 200-request burst
+- Dashboard: observed tuple → likelihood vector → **posterior over 9 causes**
 
 **Say:**
 > "This is a real Razorpay test-mode decline, over a real webhook, HMAC-verified.
 > The normaliser doesn't map this code to one cause — it emits a likelihood vector,
-> because code 05 genuinely *is* ambiguous. The model produces the posterior. That
-> ambiguity is the product.
+> because code 05 genuinely *is* ambiguous. That ambiguity is the product.
 >
 > Nothing in this request path thinks. No model, no OPA, no LLM. We verify the
 > signature, deduplicate, acknowledge, and *then* decide — because a slow webhook
 > becomes a duplicate delivery, becomes an inflated attempt counter, becomes a
-> network fine."
+> network fine. That 20 ms budget is a compliance budget, not a performance one."
 
 ---
 
-## Beat 3 — The gate (1:15 – 2:15)
+## Beat 2b — Gate 1: the model I built and didn't ship (1:15 – 1:35)
+
+**Show:** `praman ablation` — the same 5,000 declines, attribution swapped.
+
+```
+                              heuristic           ML        delta
+blocked by conf. floor             8.4%         4.8%        -3.6pp
+actuations executed               2,442        2,556         +114
+incremental per decline          Rs 44.93     Rs 47.89     +Rs 2.96
+information capture (ICR)        0.9608       0.9029       -0.0579
+
+held-out macro AUC ......  0.9566   (gate 0.70: PASS)
+recovery delta (paired) .  Rs 2.96   95% CI [Rs -0.19, Rs 6.56]   -> straddles zero
+VERDICT: ship the HEURISTIC.
+```
+
+**Say:**
+> "I trained LightGBM. Held-out AUC 0.9566, well past my gate of 0.70. I'm not
+> shipping it, and this is the slide I'd most want you to remember.
+>
+> Look at the top two rows together. The model trips the confidence floor 3.6 points
+> *less* often, so it acts 114 more times — while its information capture goes *down*.
+> It's sharper, not righter. It's buying actions with confidence instead of accuracy,
+> and that is exactly the failure the confidence floor exists to prevent: a legal
+> action on a false premise, walking straight through the one number the kernel reads.
+>
+> And the extra recovery? Two rupees ninety-six, interval minus nineteen paise to six
+> fifty-six. It straddles zero. Quoting 'worth fifteen thousand rupees' off that point
+> estimate would be the exact move I'm criticising everyone else for.
+>
+> A model that adds nothing isn't free — it's a training step, an artifact, a version
+> to audit, and a second thing that can go wrong on the money path. The number decided,
+> not me. It's in `docs/GATE_LOG.md`."
+
+---
+
+## Beat 3 — The gate (1:35 – 2:20)
 
 **Show the S3 regulatory deadlock case.** This is the highest-signal beat.
 

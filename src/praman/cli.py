@@ -17,6 +17,8 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+from praman.attribution.ablation import run_ablation
+from praman.attribution.model import GATE1_MIN_AUC, train_attribution_model
 from praman.ingest.store import connect_ingest, pending
 from praman.ingest.worker import process_pending
 from praman.kernel.opa_client import PolicyClient
@@ -26,6 +28,7 @@ from praman.measure.assign import DEFAULT_HOLDOUT_PCT
 from praman.measure.harness import payments_world, toy_world, validate_estimator
 from praman.measure.power import DEFAULT_GRID, PowerCurve, power_curve
 from praman.measure.report import build_report
+from praman.sim.generator import generate_batch
 from praman.slice_runner import run_batch
 
 EXIT_OK = 0
@@ -413,6 +416,39 @@ def _cmd_process_webhooks(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_ablation(args: argparse.Namespace) -> int:
+    """GATE 1: run the same batch under both attributions and decide by the number.
+
+    Exits 0 either way. The verdict is a finding, not a failure -- "ship the
+    heuristic" is as legitimate an outcome as "ship the model", and an exit code
+    that punished it would quietly bias the decision toward shipping.
+    """
+    import tempfile
+
+    print(f"training on {args.train_n:,} declines ...")
+    model = train_attribution_model(generate_batch(n=args.train_n, seed=args.train_seed))
+    print(model.metrics.render())
+    print()
+
+    with tempfile.TemporaryDirectory() as tmp:
+        ablation = run_ablation(
+            generate_batch(n=args.batch_n, seed=args.seed),
+            model,
+            Path(tmp),
+            _batch_client,
+            holdout_pct=args.holdout_pct,
+            gate_min_auc=GATE1_MIN_AUC,
+        )
+    print(ablation.render())
+
+    if args.save and ablation.model_earns_its_place:
+        model.save(args.save)
+        print(f"\n+ model saved to {args.save}")
+    elif args.save:
+        print("\n~ model NOT saved: it did not earn its place. Nothing to ship.")
+    return EXIT_OK
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="praman",
@@ -486,6 +522,18 @@ def build_parser() -> argparse.ArgumentParser:
     w.add_argument("--experiment-id", default="praman-v1")
     w.add_argument("--holdout-pct", type=int, default=DEFAULT_HOLDOUT_PCT)
     w.set_defaults(func=_cmd_process_webhooks)
+
+    a = sub.add_parser(
+        "ablation",
+        help="GATE 1: heuristic vs ML attribution on the same batch",
+    )
+    a.add_argument("--train-n", type=int, default=12000)
+    a.add_argument("--train-seed", type=int, default=31)
+    a.add_argument("--batch-n", type=int, default=5000)
+    a.add_argument("--seed", type=int, default=77)
+    a.add_argument("--holdout-pct", type=int, default=DEFAULT_HOLDOUT_PCT)
+    a.add_argument("--save", default=None, help="write the model here IF it earns its place")
+    a.set_defaults(func=_cmd_ablation)
 
     p = sub.add_parser(
         "power",

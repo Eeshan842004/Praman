@@ -252,9 +252,8 @@ def generate_batch(
     for i in range(n):
         cause = CAUSES[cause_idx[i]]
         rail = str(rails[i])
-        rail_key = "upi" if rail.startswith("upi") else "card"
-
-        dist = tax.emissions(rail_key, cause)
+        # The taxonomy owns the rail -> emission-family mapping (Taxonomy.rail_key).
+        dist = tax.emissions(rail, cause)
         symbols = list(dist)
         p = np.array([dist[s] for s in symbols], dtype=float)
         symbol = str(rng.choice(symbols, p=p / p.sum())) if symbols else "UNKNOWN"
