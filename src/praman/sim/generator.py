@@ -106,6 +106,11 @@ class SyntheticDecline:
 class DeclineBatch:
     declines: list[SyntheticDecline]
     seed: int
+    # SEALED. P(cause | features) as actually sampled from, one row per decline.
+    # The Bayes-optimal posterior is this times the emission and side-signal
+    # likelihoods -- so the information ceiling is COMPUTED, not approximated.
+    # Recomputing it downstream would turn an exact ratio into an estimate.
+    cause_probs: np.ndarray = None  # type: ignore[assignment]
 
     def sealed_truth(self, actioned: dict[str, bool]) -> float:
         """True intention-to-treat effect in paise for this batch."""
@@ -145,7 +150,7 @@ def _cause_tilts(
 
 def _sample_causes(
     rng: np.random.Generator, prior: dict[str, float], tilt: np.ndarray
-) -> np.ndarray:
+) -> tuple[np.ndarray, np.ndarray]:
     """Draw causes from the tilted prior, corrected so the MARGINAL still tracks
     the regional prior.
 
@@ -166,7 +171,8 @@ def _sample_causes(
     probs /= probs.sum(axis=1, keepdims=True)
 
     u = rng.random(probs.shape[0])[:, None]
-    return (probs.cumsum(axis=1) < u).sum(axis=1).clip(0, len(CAUSES) - 1)
+    drawn = (probs.cumsum(axis=1) < u).sum(axis=1).clip(0, len(CAUSES) - 1)
+    return drawn, probs
 
 
 def generate_batch(
@@ -233,7 +239,7 @@ def generate_batch(
         attempts_prior_1h[mask] = [int(((bt >= t - 3_600_000) & (bt < t)).sum()) for t in bt]
 
     # ── Cause CONDITIONED on the features above ────────────────────────────
-    cause_idx = _sample_causes(
+    cause_idx, cause_probs = _sample_causes(
         rng,
         tax.prior(region),
         _cause_tilts(days_since_payday, attempts_prior_1h, in_outage, amount_z),
@@ -305,7 +311,7 @@ def generate_batch(
             )
         )
 
-    return DeclineBatch(declines=declines, seed=seed)
+    return DeclineBatch(declines=declines, seed=seed, cause_probs=cause_probs)
 
 
 __all__ = ["RECOVERY_RATES", "DeclineBatch", "SyntheticDecline", "generate_batch"]
