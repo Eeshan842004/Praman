@@ -465,3 +465,17 @@ def test_a_partly_replayed_ledger_is_not_an_attestation(live_ledger, tmp_path):
     assert report.reproduced < report.total
     assert not report.ok, "a partial replay must not pass as an attestation"
     assert "deadbeefdeadbeef" in report.render()
+
+
+def test_find_opa_accepts_a_windows_path_without_the_extension(tmp_path):
+    """`tools/opa` resolves in Git Bash but not in Python on Windows.
+
+    The verify script passes whatever path its shell resolved, so an explicit
+    path that omits `.exe` has to keep working -- otherwise replay is skipped on
+    the exact platform the demo is recorded on, and the attestation quietly
+    degrades to a chain-only check.
+    """
+    exe = tmp_path / "opa.exe"
+    exe.write_bytes(b"stub")
+    assert find_opa(tmp_path / "opa") == exe
+    assert find_opa(tmp_path / "missing") is None

@@ -83,6 +83,14 @@ def _cmd_verify(args: argparse.Namespace) -> int:
             if replayed.ran and not replayed.ok:
                 print("ATTESTATION FAIL")
                 return EXIT_FAIL
+            # Degrading to a chain-only check is right for a developer without
+            # the OPA binary, and wrong for the judge-facing script whose whole
+            # purpose is to demonstrate replay. --require-replay makes a skip
+            # fail loudly rather than print PASS on half the claim.
+            if args.require_replay and not replayed.ran:
+                print("x replay was required but could not run -- this is NOT an attestation")
+                print("ATTESTATION FAIL")
+                return EXIT_FAIL
         else:
             print("~ replay disabled: chain checked, policy NOT re-derived")
 
@@ -479,6 +487,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     v.add_argument(
         "--opa", default=None, help="path to the opa binary (default: tools/, then PATH)"
+    )
+    v.add_argument(
+        "--require-replay",
+        action="store_true",
+        help="fail if the replay could not run, instead of degrading to a chain-only check",
     )
     v.set_defaults(func=_cmd_verify, replay=True)
 

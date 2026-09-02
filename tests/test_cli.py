@@ -378,3 +378,33 @@ def test_no_replay_claims_nothing_it_did_not_check(tmp_path, capsys):
     assert rc == 0
     assert "reproduced" not in out
     assert "chain intact" in out
+
+
+def test_require_replay_fails_when_replay_could_not_run(tmp_path, capsys):
+    """The judge-facing script must never print PASS on a chain-only check.
+
+    `verify` degrades gracefully by design: no OPA binary means the chain is
+    still checked and the replay is reported as skipped. That is right for a
+    developer. It is wrong for scripts/verify.sh, whose entire purpose is to
+    demonstrate replay -- there, a skip that still prints ATTESTATION PASS is
+    the same unearned claim the GROUP BY was.
+    """
+    p = tmp_path / "ledger.db"
+    _seed(p, n=6)
+    rc = main(["verify", "--ledger", str(p), "--opa", str(tmp_path / "nope"), "--require-replay"])
+    out = capsys.readouterr().out
+    assert rc != 0
+    assert "ATTESTATION PASS" not in out
+    assert "replay was required" in out
+
+
+def test_require_replay_passes_when_replay_actually_runs(tmp_path, capsys):
+    p = tmp_path / "ledger.db"
+    _seed(p, n=6)
+    rc = main(["verify", "--ledger", str(p), "--require-replay"])
+    out = capsys.readouterr().out
+    if "replay skipped" in out:
+        pytest.skip("no opa binary available locally")
+    assert rc == 0
+    assert "6/6 decisions reproduced" in out
+    assert "ATTESTATION PASS" in out

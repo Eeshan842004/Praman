@@ -60,7 +60,13 @@ def find_opa(explicit: str | Path | None = None) -> Path | None:
     """Locate the OPA binary: an explicit path, the vendored one, then PATH."""
     if explicit:
         p = Path(explicit)
-        return p if p.exists() else None
+        if p.exists():
+            return p
+        # A shell that resolved `tools/opa` (Git Bash appends .exe silently)
+        # hands us a path Python cannot see. Without this the verify script
+        # skips replay on Windows and degrades to a chain-only check.
+        with_exe = p.with_suffix(".exe")
+        return with_exe if with_exe.exists() else None
 
     vendored = REPO_ROOT / "tools" / ("opa.exe" if os.name == "nt" else "opa")
     if vendored.exists():
