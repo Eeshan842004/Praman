@@ -1,0 +1,52 @@
+{
+  "_source": "razorpay_rest_api",
+  "account_id": "acc_TESTCAPTURE",
+  "contains": [
+    "payment"
+  ],
+  "created_at": 1788310020,
+  "entity": "event",
+  "event": "payment.failed",
+  "payload": {
+    "payment": {
+      "entity": {
+        "acquirer_data": {
+          "auth_code": null
+        },
+        "amount": 10000,
+        "amount_captured": null,
+        "amount_refunded": 0,
+        "bank": null,
+        "captured": false,
+        "card": {
+          "international": false,
+          "issuer": "DCBL",
+          "network": "Visa",
+          "sub_type": "consumer",
+          "type": "debit"
+        },
+        "contact": "anon_92fc619338e2a8e1023c",
+        "created_at": 1788310020,
+        "currency": "INR",
+        "description": "#TWyVrVXPXmunyW",
+        "email": "anon_ce4a86ef4bd7ed283d58",
+        "entity": "payment",
+        "error_code": "BAD_REQUEST_ERROR",
+        "error_description": "Payment failed",
+        "error_reason": "payment_failed",
+        "error_source": "gateway",
+        "error_step": "payment_authorization",
+        "fee": null,
+        "id": "pay_TWyXyIFiANWZVS",
+        "international": false,
+        "method": "card",
+        "order_id": "order_TWyWQEK4RILk62",
+        "refund_status": null,
+        "status": "failed",
+        "tax": null,
+        "vpa": null,
+        "wallet": null
+      }
+    }
+  }
+}

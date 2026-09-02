@@ -165,7 +165,38 @@ merchant's own attempt log keyed by BIN, which the simulator has and the live
 webhook path does not. In the batch pipeline the counter is computed properly
 and the rule is enforced.
 
-## 11. Scope boundaries
+## 11. Live Razorpay payloads contradict their own documented shape
+
+`fixtures/razorpay/` holds nine real test-mode failures pulled off the REST API
+with the account's own keys, redacted through the same chokepoint the webhook
+path uses. Capturing them found three places where the live payload differs from
+what the published schema implies, all now asserted in `tests/test_fixtures.py`:
+
+| Field | Documented / assumed | Live |
+|---|---|---|
+| `notes` | object `{}` | **empty list `[]`** when unset |
+| `acquirer_data.rrn` | present | **absent** — a failed authorisation never reaches settlement, so there is no retrieval reference number |
+| `card.name` | not mentioned | **present — the cardholder's name** |
+
+The third is the one that mattered. `redact()` keeps an **allowlist** of card
+fields, so `card.name` was dropped without anyone having to know it existed. A
+denylist — "strip the fields we know are sensitive" — would have committed a
+real person's name to a public repository, and no test built from our own
+hand-written payload could have caught it, because our payload never had the
+field. This is the concrete argument for allowlists over denylists at a
+redaction boundary, and it was found by capturing real traffic rather than by
+reasoning about it.
+
+`notes: []` is harmless here only because `redact()` drops the field outright.
+Any code that had assumed a mapping would have failed on live traffic while
+passing every test.
+
+**What this does license:** the statement that the ingest layer is verified
+against live traffic, not only against the documented schema.
+**What it does not:** any claim about production-scale traffic. Nine failures
+from one test account is an integration check, not a sample.
+
+## 12. Scope boundaries
 
 Not built, deliberately: authentication, multi-tenancy, RBAC, real-time streaming,
 live multi-processor integrations, mobile, or email/SMS delivery. Portability

@@ -1,0 +1,74 @@
+[
+  {
+    "error_code": "BAD_REQUEST_ERROR",
+    "error_reason": "payment_failed",
+    "error_source": "gateway",
+    "error_step": "payment_authorization",
+    "method": "card",
+    "payment_id": "pay_TWyXyIFiANWZVS"
+  },
+  {
+    "error_code": "BAD_REQUEST_ERROR",
+    "error_reason": "payment_cancelled",
+    "error_source": "customer",
+    "error_step": "payment_authentication",
+    "method": "card",
+    "payment_id": "pay_TWyYef0D3L7Vpl"
+  },
+  {
+    "error_code": "BAD_REQUEST_ERROR",
+    "error_reason": "payment_failed",
+    "error_source": "gateway",
+    "error_step": "payment_authorization",
+    "method": "card",
+    "payment_id": "pay_TWyZJodLlQ5S2i"
+  },
+  {
+    "error_code": "BAD_REQUEST_ERROR",
+    "error_reason": "payment_failed",
+    "error_source": "gateway",
+    "error_step": "payment_authorization",
+    "method": "card",
+    "payment_id": "pay_TWyZcAtdaGCwt6"
+  },
+  {
+    "error_code": "BAD_REQUEST_ERROR",
+    "error_reason": "payment_failed",
+    "error_source": "gateway",
+    "error_step": "payment_authorization",
+    "method": "card",
+    "payment_id": "pay_TWyaouq22jmocQ"
+  },
+  {
+    "error_code": "BAD_REQUEST_ERROR",
+    "error_reason": "payment_failed",
+    "error_source": "gateway",
+    "error_step": "payment_authorization",
+    "method": "card",
+    "payment_id": "pay_TWyb71jnVLQb8M"
+  },
+  {
+    "error_code": "BAD_REQUEST_ERROR",
+    "error_reason": "payment_failed",
+    "error_source": "gateway",
+    "error_step": "payment_authorization",
+    "method": "card",
+    "payment_id": "pay_TWybQ1LD6IJ0Bt"
+  },
+  {
+    "error_code": "BAD_REQUEST_ERROR",
+    "error_reason": "payment_failed",
+    "error_source": "gateway",
+    "error_step": "payment_authorization",
+    "method": "card",
+    "payment_id": "pay_TWybkOUFbsYSTc"
+  },
+  {
+    "error_code": "BAD_REQUEST_ERROR",
+    "error_reason": "payment_failed",
+    "error_source": "gateway",
+    "error_step": "payment_authorization",
+    "method": "card",
+    "payment_id": "pay_TWyc3phIPu9QAD"
+  }
+]
