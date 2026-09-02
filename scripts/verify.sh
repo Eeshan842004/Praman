@@ -28,7 +28,9 @@ say() { printf '\033[36m%s\033[0m\n' "$*"; }
 die() { printf '\033[31merror: %s\033[0m\n' "$*" >&2; exit 1; }
 
 # ── OPA ───────────────────────────────────────────────────────────────────────
-if [ -x "tools/opa" ]; then
+if [ -x "tools/opa.exe" ]; then
+  OPA="tools/opa.exe"
+elif [ -x "tools/opa" ]; then
   OPA="tools/opa"
 elif command -v opa >/dev/null 2>&1; then
   OPA="$(command -v opa)"
@@ -36,16 +38,22 @@ else
   case "$(uname -s)" in
     Linux)  os=linux ;;
     Darwin) os=darwin ;;
-    *)      die "unsupported OS $(uname -s). Use scripts/verify.ps1 on Windows." ;;
+    # Git Bash / MSYS2 / Cygwin report these. They are the shells the demo is
+    # actually recorded in on Windows, so handle them here rather than
+    # deflecting to PowerShell.
+    MINGW*|MSYS*|CYGWIN*) os=windows ;;
+    *)      die "unsupported OS $(uname -s)" ;;
   esac
   case "$(uname -m)" in
     x86_64|amd64) arch=amd64 ;;
     arm64|aarch64) arch=arm64 ;;
     *) die "unsupported architecture $(uname -m)" ;;
   esac
-  # The linux builds are published as static binaries under a different name.
+
+  # Linux ships static builds under a different name; Windows keeps the .exe.
   asset="opa_${os}_${arch}"
   [ "$os" = "linux" ] && asset="${asset}_static"
+  [ "$os" = "windows" ] && asset="${asset}.exe"
 
   say "fetching OPA ${OPA_VERSION} into tools/ ..."
   mkdir -p tools
