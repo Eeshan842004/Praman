@@ -44,7 +44,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh     # or the PowerShell line in 
 | Claim | Command | Expected | Runtime |
 |---|---|---|---|
 | 417 tests pass | `uv run pytest` | `417 passed` | ~4 min |
-| Replay tests actually run (do not skip) | `PRAMAN_REQUIRE_OPA=1 uv run pytest tests/test_replay.py` | 15 passed, 0 skipped | ~40 s |
+| Replay tests actually run (do not skip) | `PRAMAN_REQUIRE_OPA=1 uv run pytest tests/test_replay.py` | 14 passed, 0 skipped | ~40 s |
 | Webhook p99 < 20 ms over a 200-request burst | `uv run pytest tests/test_ingest.py -k p99 -q` | passes; measured p50 0.71 ms / p95 0.92 ms / **p99 1.46 ms** | ~10 s |
 
 ## Tier 4 — measurement, minutes to tens of minutes
