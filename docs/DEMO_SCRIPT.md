@@ -34,7 +34,8 @@
 
 **Show:**
 - Terminal: `200 OK` — measured p99 **1.46 ms** over a 200-request burst
-- Dashboard: observed tuple → likelihood vector → **posterior over 9 causes**
+- Dashboard `/decision/{seq}`: the **posterior over all nine causes**, not an argmax
+- Nine real Razorpay test-mode failures are committed in `fixtures/razorpay/`
 
 **Say:**
 > "This is a real Razorpay test-mode decline, over a real webhook, HMAC-verified.
@@ -60,6 +61,7 @@ incremental per decline          Rs 44.93     Rs 47.89     +Rs 2.96
 information capture (ICR)        0.9608       0.9029       -0.0579
 
 held-out macro AUC ......  0.9566   (gate 0.70: PASS)
+features-blind ceiling ..  0.9667   heuristic reaches 99.4% of it
 recovery delta (paired) .  Rs 2.96   95% CI [Rs -0.19, Rs 6.56]   -> straddles zero
 VERDICT: ship the HEURISTIC.
 ```
@@ -77,6 +79,12 @@ VERDICT: ship the HEURISTIC.
 > And the extra recovery? Two rupees ninety-six, interval minus nineteen paise to six
 > fifty-six. It straddles zero. Quoting 'worth fifteen thousand rupees' off that point
 > estimate would be the exact move I'm criticising everyone else for.
+>
+> And before you ask whether I stacked the comparison: I audited the ceiling. The
+> denominator already conditions on everything the model can see. Features carry
+> three point nine percent of the total available information — that was the whole
+> prize — and the heuristic, which is the *exact* Bayes posterior for its inputs,
+> already reaches ninety-nine point four percent of its own theoretical maximum.
 >
 > A model that adds nothing isn't free — it's a training step, an artifact, a version
 > to audit, and a second thing that can go wrong on the money path. The number decided,
@@ -195,24 +203,27 @@ ILLUSTRATIVE . the underpowered batch (n=3,000), kept on purpose
 ## Beat 5 — The proof (3:15 – 4:00)
 
 ```
-$ praman verify --ledger data/ledger.db
-+ 22912 entries . chain intact (22912 entries, head 5b186e47...)
-+ 9200/9200 decisions reproduced against 2 pinned bundle(s)
-    bundle 4ca4787c0a1eea75 : entries 1-2997      (1200 decisions)
-    bundle bd45b0c7e5ce66a3 : entries 3000-22911  (8000 decisions)
-+ 0 policy violations across 4512 actuations . arms: {'holdout': 1834, 'treatment': 7366}
+$ ./scripts/verify.sh                       # one command, fresh clone, no setup
++ 2988 entries . chain intact (2988 entries, head a2ff7d7d...)
++ 1200/1200 decisions reproduced against 2 pinned bundle(s)
+    bundle 4ca4787c0a1eea75 : entries 1-988     (400 decisions)
+    bundle bd45b0c7e5ce66a3 : entries 991-2986  (800 decisions)
++ 0 policy violations across 588 actuations
 ATTESTATION PASS
 
 $ praman tamper --ledger data/ledger.db --entry 447 --set amount_paise=99999900
   ! dropping append-only trigger to modify entry 447 (privileged act)
-$ praman verify --ledger data/ledger.db
-x CHAIN BROKEN at entry 447 (expected b8bd322c... got 32075c83...) -> 22465 subsequent entries invalidated
-  entry 447 of 22912
+$ ./scripts/verify.sh
+x CHAIN BROKEN at entry 447 (expected 90d05627... got dc160faa...) -> 2541 subsequent entries invalidated
+  entry 447 of 2988
 ATTESTATION FAIL
 ```
 
 **Say:**
-> "Two independent checks, and the difference between them is the whole point.
+> "This is one command on a fresh clone. It fetches the policy engine itself; the
+> ledger is committed. You are not trusting this video.
+>
+> Two independent checks, and the difference between them is the whole point.
 >
 > The hash chain proves nothing was changed after the fact. It cannot prove the
 > record was ever *true* — someone who holds the append path can bypass the policy
@@ -268,10 +279,13 @@ ATTESTATION FAIL
 ## Recording checklist
 
 - [ ] Record **locally** via `cloudflared` tunnel. Never depend on a cold start.
-- [ ] `praman power` takes ~20 minutes — run it beforehand and demo `--load
+- [ ] `praman power` takes ~25 minutes — demo `praman power --load
       docs/power_curve.json`, which renders the saved measurement instantly.
-- [ ] Pre-generate `data/ledger.db` before rolling; `verify` replays every decision
-      through OPA and that takes time proportional to the batch.
+- [ ] `praman prewarm` before rolling, so no beat waits on a Gemini round trip.
+      1,200 decisions collapse to 50 archetypes, so it is 50 calls.
+- [ ] The committed `data/ledger.db` is the one to attest on camera — 2,988
+      entries, two bundles, ~15 s. Do not use the 23 MB full run.
+- [ ] `git checkout data/ledger.db` after the tamper beat.
 - [ ] Terminal font ≥ 16pt. Dark theme. No personal info on screen.
 - [ ] Rotate/revoke any key visible in any frame.
 - [ ] Record twice. Keep the second take.

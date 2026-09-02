@@ -33,6 +33,45 @@ the model actually extracts, in bits.
 **What this proves:** the pipeline and its calibration.
 **What it does not prove:** that these numbers transfer to production traffic.
 
+### The trained model is built and NOT shipped
+
+Gate 1 trained LightGBM, measured it against the taxonomy heuristic on the same
+5,000 declines with only the attribution swapped, and shipped the heuristic. The
+held-out macro AUC was **0.9566**, comfortably past the 0.70 gate — so the gate
+was not the binding constraint, and reporting only the AUC would have been
+reporting the number that passed.
+
+Measured where the kernel actually consumes attribution:
+
+| | heuristic | ML | delta |
+|---|---|---|---|
+| blocked by the confidence floor | 8.4% | 4.8% | −3.6pp |
+| actuations executed | 2,442 | 2,556 | +114 |
+| information capture (ICR) | 0.9608 | 0.9029 | **−0.0579** |
+| incremental per decline | ₹44.93 | ₹47.89 | +₹2.96, CI [−0.19, 6.56] |
+
+The model acts *more* often while capturing *less* information. It is sharper,
+not righter — buying actions with confidence rather than accuracy, which is a
+legal action on a false premise arriving through the exact number the Rego
+confidence floor reads. And the extra recovery does not separate from zero, so
+quoting a rupee figure for it would be the naive-gross-recovery move this project
+argues against.
+
+**Why a model with strictly more information scored lower**, since that is the
+obvious objection: an ICR ceiling audit (`praman icr-audit`) shows features carry
+only **3.89%** of the total available information about the cause. That is the
+entire prize. The heuristic does not *estimate* the remaining 96% — it is the
+exact Bayes posterior for its inputs and reaches 99.4% of the maximum any
+features-blind predictor could reach. LightGBM must re-learn that mapping from
+~6,600 rows across 9 classes, and its estimation error there costs more than the
+4% it stands to gain. Ordinary bias–variance, stated in bits.
+
+**Where this would flip:** the result depends on this generator's emission matrix
+being sharp. Real `05` traffic is more ambiguous than that, which would shrink the
+symbol's share and grow the model's opportunity. **The claim is about this
+simulator, not about payments in general.** Full reasoning and the superseded
+pre-audit entry are in [`docs/GATE_LOG.md`](docs/GATE_LOG.md).
+
 ## 3. We never claim recovered revenue
 
 The industry reports gross recovery. Gross recovery silently includes every
