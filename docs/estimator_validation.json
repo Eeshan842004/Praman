@@ -1,0 +1,13 @@
+{
+  "n_worlds": 200,
+  "holdout_pct": 20,
+  "coverage": 0.955,
+  "mean_bias_pct": -3.3701463186123615,
+  "rmse": 1286.0263361027694,
+  "mean_ci_width": 5392.075580145864,
+  "mean_variance_reduction": 0.380606401680468,
+  "naive_mean_bias_pct": 58.74870014769867,
+  "naive_coverage": 0.085,
+  "mean_true_ate": 6900.7700575,
+  "world": "payments"
+}

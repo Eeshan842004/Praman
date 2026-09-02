@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Praman{% endblock %}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+    .num { font-variant-numeric: tabular-nums; }
+  </style>
+</head>
+<body class="h-full bg-slate-950 text-slate-200">
+<div class="max-w-5xl mx-auto px-6 py-8">
+
+  <header class="flex flex-wrap items-baseline gap-6 border-b border-slate-800 pb-4 mb-8">
+    <a href="/" class="text-xl font-semibold text-white tracking-tight">Praman</a>
+    <nav class="flex gap-5 text-sm">
+      <a href="/" class="hover:text-white text-slate-400">batch</a>
+      <a href="/attestation" class="hover:text-white text-slate-400">attestation</a>
+    </nav>
+    <span class="ml-auto text-xs text-slate-600">the model proposes, the policy disposes, the ledger remembers</span>
+  </header>
+
+  {% block content %}{% endblock %}
+
+  <footer class="mt-16 pt-4 border-t border-slate-800 text-xs text-slate-600">
+    Every number on this page is read from the same append-only ledger
+    <code class="text-slate-500">praman verify</code> attests. There is no separate analytics store.
+  </footer>
+</div>
+</body>
+</html>

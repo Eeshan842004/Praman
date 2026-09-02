@@ -196,6 +196,34 @@ def _cmd_validate_estimator(args: argparse.Namespace) -> int:
         seed0=args.seed,
         world_factory=factory,
     )
+    if args.save:
+        # The dashboard renders this without re-running 200 worlds. A saved
+        # measurement is an artifact; recomputing it from memory would be
+        # fabrication, and recomputing it per request would take minutes.
+        import json
+
+        Path(args.save).write_text(
+            json.dumps(
+                {
+                    "n_worlds": report.n_worlds,
+                    "holdout_pct": report.holdout_pct,
+                    "coverage": report.coverage,
+                    "mean_bias_pct": report.mean_bias_pct,
+                    "rmse": report.rmse,
+                    "mean_ci_width": report.mean_ci_width,
+                    "mean_variance_reduction": report.mean_variance_reduction,
+                    "naive_mean_bias_pct": report.naive_mean_bias_pct,
+                    "naive_coverage": report.naive_coverage,
+                    "mean_true_ate": report.mean_true_ate,
+                    "world": args.world,
+                },
+                indent=2,
+            )
+            + chr(10),
+            encoding="utf-8",
+        )
+        print(f"saved to {args.save}")
+
     scope = "" if args.world == "toy" else f" (n={args.world_n} per world)"
     print(f"world: {args.world}{scope}")
     print(report.render())
@@ -588,6 +616,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="which generator to score against (default: the payments simulator)",
     )
     e.add_argument("--world-n", type=int, default=2000, help="declines per simulated world")
+    e.add_argument("--save", default=None, help="write the measured report to this JSON file")
     e.set_defaults(func=_cmd_validate_estimator)
 
     b = sub.add_parser("run-batch", help="run the recovery pipeline over a batch of declines")

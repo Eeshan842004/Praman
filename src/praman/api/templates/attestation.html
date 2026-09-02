@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}Praman - attestation{% endblock %}
+{% block content %}
+
+<div class="border rounded p-5 mb-8 {% if ok %}border-emerald-800 bg-emerald-950/30{% else %}border-red-800 bg-red-950/30{% endif %}">
+  <div class="text-lg font-semibold {% if ok %}text-emerald-400{% else %}text-red-400{% endif %}">
+    {% if ok %}CHAIN INTACT{% else %}CHAIN BROKEN{% endif %}
+  </div>
+  <div class="text-sm text-slate-400 mt-1">{{ message }}</div>
+  {% if not ok %}<div class="text-sm text-red-400 mt-1">first broken entry: {{ broken_at }}</div>{% endif %}
+  <div class="text-xs text-slate-600 mt-3">{{ ledger }}</div>
+</div>
+
+<div class="grid grid-cols-3 gap-px bg-slate-800 border border-slate-800 rounded mb-8">
+  <div class="bg-slate-900 p-4">
+    <div class="text-2xl font-semibold text-white num">{{ "{:,}".format(entries) }}</div>
+    <div class="text-xs text-slate-500 uppercase tracking-wide mt-1">entries hashed</div>
+  </div>
+  <div class="bg-slate-900 p-4">
+    <div class="text-2xl font-semibold text-white num">{{ "{:,}".format(decisions) }}</div>
+    <div class="text-xs text-slate-500 uppercase tracking-wide mt-1">decisions</div>
+  </div>
+  <div class="bg-slate-900 p-4">
+    <div class="text-2xl font-semibold num {% if unreplayable == 0 %}text-emerald-400{% else %}text-red-400{% endif %}">{{ unreplayable }}</div>
+    <div class="text-xs text-slate-500 uppercase tracking-wide mt-1">without a stored input</div>
+  </div>
+</div>
+
+<section class="mb-8">
+  <h2 class="text-sm uppercase tracking-wider text-slate-400 mb-1">Pinned bundle spans</h2>
+  <p class="text-xs text-slate-500 mb-4">
+    Each span replays against the bundle that actually authorised it. Two spans is what makes this
+    an audit of a policy <em class="text-slate-400">change</em>, not just of a policy.
+  </p>
+  <div class="overflow-x-auto">
+  <table class="w-full text-sm">
+    <thead><tr class="text-xs uppercase tracking-wider text-slate-500 border-b border-slate-800">
+      <th class="text-left pb-2">bundle revision</th>
+      <th class="text-right pb-2">entries</th>
+      <th class="text-right pb-2">decisions</th>
+    </tr></thead>
+    <tbody>
+    {% for span in spans %}
+      <tr class="border-b border-slate-900">
+        <td class="py-1.5 text-slate-300">{{ span.revision }}</td>
+        <td class="py-1.5 text-right num text-slate-400">{{ span.lo }} - {{ span.hi }}</td>
+        <td class="py-1.5 text-right num text-white">{{ "{:,}".format(span.count) }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section class="border border-slate-800 rounded p-4">
+  <h2 class="text-sm uppercase tracking-wider text-slate-400 mb-3">Two independent checks</h2>
+  <div class="text-sm text-slate-400 space-y-3">
+    <p>
+      <span class="text-white">Chain.</span> Recomputes
+      <code class="text-slate-300">sha256(prev_hash || canonical_bytes(row))</code> over every entry.
+      Proves nothing was changed after the fact. This page runs it live, which is why the banner
+      above is a measurement and not a label.
+    </p>
+    <p>
+      <span class="text-white">Replay.</span> Re-POSTs every stored policy input to OPA loaded with
+      that entry's pinned bundle and compares the verdict. Proves the record was
+      <em>true when written</em> - which a hash chain structurally cannot do, because a writer that
+      bypasses the policy engine and records its own verdict still hashes perfectly.
+    </p>
+    <p class="text-slate-500">
+      Replay spawns a policy engine per bundle, so it runs from the terminal rather than on a page
+      load:
+      <code class="text-slate-300">./scripts/verify.sh</code>
+    </p>
+    <p class="text-slate-500 text-xs pt-2 border-t border-slate-800">
+      Honest limit: this is tamper-<em>evident</em>, not tamper-<em>preventing</em>. It detects
+      modification. It does not stop a sufficiently privileged actor from attempting one -
+      <code class="text-slate-400">praman tamper</code> has to drop the append-only trigger first,
+      and the chain still catches it.
+    </p>
+  </div>
+</section>
+{% endblock %}

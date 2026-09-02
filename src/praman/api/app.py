@@ -9,6 +9,7 @@ import structlog
 from fastapi import FastAPI, Response
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
+from praman.api.dashboard import build_dashboard_router
 from praman.config import settings
 from praman.ingest.router import build_webhook_router
 
@@ -66,6 +67,10 @@ def create_app() -> FastAPI:
             ingest_path=settings.ingest_abspath,
         )
     )
+
+    # The dashboard is mounted last so its "/" does not shadow anything, and it
+    # is read-only by construction -- it opens the ledger, renders, and closes.
+    app.include_router(build_dashboard_router())
 
     return app
 

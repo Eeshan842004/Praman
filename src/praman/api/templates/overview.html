@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% block title %}Praman - batch{% endblock %}
+{% block content %}
+
+<div class="grid grid-cols-2 md:grid-cols-4 gap-px bg-slate-800 border border-slate-800 rounded mb-8">
+  <div class="bg-slate-900 p-4">
+    <div class="text-2xl font-semibold text-white num">{{ "{:,}".format(total) }}</div>
+    <div class="text-xs text-slate-500 uppercase tracking-wide mt-1">decisions</div>
+  </div>
+  <div class="bg-slate-900 p-4">
+    <div class="text-2xl font-semibold text-white num">{{ "{:,}".format(actuations) }}</div>
+    <div class="text-xs text-slate-500 uppercase tracking-wide mt-1">actuations</div>
+  </div>
+  <div class="bg-slate-900 p-4">
+    <div class="text-2xl font-semibold text-white num">{{ "{:,}".format(entries) }}</div>
+    <div class="text-xs text-slate-500 uppercase tracking-wide mt-1">ledger entries</div>
+  </div>
+  <div class="bg-slate-900 p-4">
+    <div class="text-2xl font-semibold num {% if violations == 0 %}text-emerald-400{% else %}text-red-400{% endif %}">{{ violations }}</div>
+    <div class="text-xs text-slate-500 uppercase tracking-wide mt-1">policy violations</div>
+  </div>
+</div>
+
+<section class="mb-10">
+  <h2 class="text-sm uppercase tracking-wider text-slate-400 mb-3">Escalation ladder</h2>
+  <div class="flex h-8 rounded overflow-hidden border border-slate-800">
+    {% for t in tiers %}{% if t.count %}
+    <div class="flex items-center justify-center text-[11px] text-slate-950 font-semibold {{ t.colour }}"
+         style="width: {{ "%.4f"|format(t.pct) }}%" title="{{ t.tier }} {{ t.action }} - {{ t.count }}">
+      {% if t.pct > 7 %}{{ t.tier }}{% endif %}
+    </div>
+    {% endif %}{% endfor %}
+  </div>
+  <table class="w-full mt-4 text-sm">
+    <tbody>
+    {% for t in tiers %}
+      <tr class="border-b border-slate-900">
+        <td class="py-1.5 w-12 text-slate-400">{{ t.tier }}</td>
+        <td class="py-1.5 text-slate-300">{{ t.action }}</td>
+        <td class="py-1.5 text-right num text-white w-24">{{ "{:,}".format(t.count) }}</td>
+        <td class="py-1.5 text-right num text-slate-500 w-20">{{ "%.1f"|format(t.pct) }}%</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="mb-10">
+  <h2 class="text-sm uppercase tracking-wider text-slate-400 mb-1">The result, in three tiers</h2>
+  <p class="text-xs text-slate-500 mb-4">Hardest claim first. Every number an incumbent reports lives in the third tier, without an interval.</p>
+
+  <div class="border border-slate-800 rounded mb-4 p-4">
+    <div class="text-xs uppercase tracking-wider text-emerald-400 mb-2">Primary - the estimator, not the outcome</div>
+    {% if primary %}
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+      <div>
+        <div class="num text-white text-lg">{{ "%+.1f"|format(primary.mean_bias_pct) }}%</div>
+        <div class="text-xs text-slate-500">bias vs sealed truth</div>
+      </div>
+      <div>
+        <div class="num text-white text-lg">{{ "%.1f"|format(primary.coverage * 100) }}%</div>
+        <div class="text-xs text-slate-500">95% CI coverage</div>
+      </div>
+      <div>
+        <div class="num text-amber-400 text-lg">{{ "%+.1f"|format(primary.naive_mean_bias_pct) }}%</div>
+        <div class="text-xs text-slate-500">naive gross bias</div>
+      </div>
+      <div>
+        <div class="num text-amber-400 text-lg">{{ "%.1f"|format(primary.naive_coverage * 100) }}%</div>
+        <div class="text-xs text-slate-500">naive coverage</div>
+      </div>
+    </div>
+    <p class="text-xs text-slate-600 mt-3">
+      {{ primary.n_worlds }} worlds from the payments simulator, sealed true effect.
+      Coverage fails if the interval is too narrow OR too wide, which is what makes it a hard test.
+    </p>
+    {% else %}
+    <p class="text-sm text-slate-500">Not measured yet. Run
+      <code class="text-slate-400">praman validate-estimator --save docs/estimator_validation.json</code>.</p>
+    {% endif %}
+  </div>
+
+  <div class="border border-slate-800 rounded p-4">
+    <div class="text-xs uppercase tracking-wider text-sky-400 mb-3">Per batch - incremental recovery, from this ledger</div>
+    <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead><tr class="text-xs uppercase tracking-wider text-slate-500 border-b border-slate-800">
+        <th class="text-left pb-2">experiment</th>
+        <th class="text-right pb-2">per decline</th>
+        <th class="text-right pb-2">95% CI</th>
+        <th class="text-right pb-2">naive gross</th>
+        <th class="text-right pb-2">excl. zero</th>
+      </tr></thead>
+      <tbody>
+      {% for e in experiments %}
+        <tr class="border-b border-slate-900">
+          <td class="py-1.5 text-slate-300">{{ e.name }}</td>
+          {% if e.unavailable %}
+          <td colspan="4" class="py-1.5 text-right text-slate-600">too few clusters to estimate</td>
+          {% else %}
+          <td class="py-1.5 text-right num text-white">Rs {{ "%.2f"|format(e.tau) }}</td>
+          <td class="py-1.5 text-right num text-slate-400">[{{ "%.2f"|format(e.lo) }}, {{ "%.2f"|format(e.hi) }}]</td>
+          <td class="py-1.5 text-right num text-amber-400">Rs {{ "%.2f"|format(e.naive) }}</td>
+          <td class="py-1.5 text-right {% if e.excludes_zero %}text-emerald-400{% else %}text-slate-500{% endif %}">{{ "yes" if e.excludes_zero else "no" }}</td>
+          {% endif %}
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    <p class="text-xs text-slate-600 mt-3">Naive gross recovery has no counterfactual and ships no interval. It is shown so it can be argued with.</p>
+  </div>
+</section>
+
+<section>
+  <h2 class="text-sm uppercase tracking-wider text-slate-400 mb-3">Recent decisions</h2>
+  <div class="overflow-x-auto">
+  <table class="w-full text-sm">
+    <thead><tr class="text-xs uppercase tracking-wider text-slate-500 border-b border-slate-800">
+      <th class="text-left pb-2">entry</th><th class="text-left pb-2">payment</th>
+      <th class="text-left pb-2">cause</th><th class="text-left pb-2">tier</th><th></th>
+    </tr></thead>
+    <tbody>
+    {% for d in recent %}
+      <tr class="border-b border-slate-900 hover:bg-slate-900">
+        <td class="py-1.5 num text-slate-500">{{ d.seq }}</td>
+        <td class="py-1.5 text-slate-300">{{ d.payment_id }}</td>
+        <td class="py-1.5 text-slate-400">{{ d.cause }}</td>
+        <td class="py-1.5 text-slate-300">{{ d.tier }}</td>
+        <td class="py-1.5 text-right"><a class="text-sky-400 hover:text-sky-300" href="/decision/{{ d.seq }}">open</a></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+{% endblock %}
