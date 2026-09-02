@@ -165,3 +165,25 @@ def test_nothing_thinks_on_a_dashboard_request(client, any_decision_seq, monkeyp
     monkeypatch.setattr("praman.kernel.opa_client.PolicyClient.evaluate", explode)
     assert client.get(f"/decision/{any_decision_seq}").status_code == 200
     assert client.get("/").status_code == 200
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# A reader must not have to reconcile surfaces in their head
+# ─────────────────────────────────────────────────────────────────────────────
+def test_the_overview_says_which_ledger_it_is_reading(client):
+    """The dashboard reads the trimmed demo ledger; the writeup headlines the
+    powered n=5,000 run. Both are valid and they differ, so the page has to say
+    which one it is showing or the two look like a contradiction."""
+    body = client.get("/").text.lower()
+    assert "demo ledger" in body or "trimmed" in body
+    assert "reproduce.md" in body
+
+
+def test_the_bundle_span_column_says_it_counts_decision_entries(client):
+    """Spans are MIN/MAX over DECISION rows, so the numbers skip the trailing
+    actuation and outcome rows of the last decision in a span. Reading
+    "entries 1-988" then "991-..." invites a question about 989 and 990 that
+    the screen cannot answer."""
+    body = client.get("/attestation").text.lower()
+    assert "decision entries" in body
+    assert "actuation" in body and "outcome" in body

@@ -31,12 +31,17 @@
   <p class="text-xs text-slate-500 mb-4">
     Each span replays against the bundle that actually authorised it. Two spans is what makes this
     an audit of a policy <em class="text-slate-400">change</em>, not just of a policy.
+    <br>
+    Ranges cover <strong class="text-slate-400">decision entries only</strong>, so consecutive
+    spans do not touch: the entries between them are the actuation and outcome rows belonging to
+    the last decision of the earlier span. Only a decision carries a bundle revision - an actuation
+    is not authorised, the decision behind it was.
   </p>
   <div class="overflow-x-auto">
   <table class="w-full text-sm">
     <thead><tr class="text-xs uppercase tracking-wider text-slate-500 border-b border-slate-800">
       <th class="text-left pb-2">bundle revision</th>
-      <th class="text-right pb-2">entries</th>
+      <th class="text-right pb-2">decision entries</th>
       <th class="text-right pb-2">decisions</th>
     </tr></thead>
     <tbody>

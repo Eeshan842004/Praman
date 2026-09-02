@@ -230,7 +230,12 @@ class ReplayReport:
             f"reproduced against {len(self.spans)} pinned bundle(s)"
         ]
         for rev, n, lo, hi in self.spans:
-            lines.append(f"    bundle {rev} : entries {lo}-{hi}  ({n} decisions)")
+            # "decision entries", because the range is MIN/MAX over DECISION
+            # rows: the gap between consecutive spans is the actuation and
+            # outcome rows of the earlier span's last decision, which carry no
+            # revision. Labelling it "entries" invites a question about the
+            # missing numbers that the output cannot answer.
+            lines.append(f"    bundle {rev} : decision entries {lo}-{hi}  ({n} decisions)")
         if self.unreplayable:
             lines.append(
                 f"  x {self.unreplayable} decision(s) stored no policy input and cannot be replayed"
