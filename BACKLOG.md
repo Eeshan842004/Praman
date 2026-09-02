@@ -35,3 +35,22 @@
   input file per decision on disk, and it would make the replay path differ from
   the live path. A replay that does not use the production client proves nothing
   about the production client.
+
+## Frozen 2026-09-02 (item 7 hard freeze)
+
+Nothing below was fixed. Each is logged rather than repaired because none of
+them breaks the demo and the freeze is worth more than the fix.
+
+- **BIN velocity is unenforceable from webhook data.** Razorpay's payload has no
+  BIN, and `0` satisfies a velocity cap rather than denying it. Needs the
+  merchant's own BIN-keyed attempt log. `LIMITATIONS.md` §10.
+- **`praman power` takes ~25 minutes.** The grid re-measures the full pipeline
+  at every point. `--load docs/power_curve.json` renders the saved measurement
+  instantly, which is what the demo uses.
+- **`mypy` reports four missing-stub errors** (yaml, pandas, scipy). Advisory in
+  CI. Installing the stub packages is a dependency change during a freeze.
+- **The committed bundles differ byte-for-byte between the PowerShell and bash
+  build scripts** — the tar records Windows path separators. Both produce the
+  same revision and OPA loads either, since it keys by package rather than path,
+  so the attestation is unaffected. Making the tarball byte-reproducible across
+  platforms is a production concern.
