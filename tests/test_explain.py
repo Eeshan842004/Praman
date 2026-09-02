@@ -249,3 +249,137 @@ def test_explanation_never_contains_the_word_that_would_imply_authority(tmp_path
 @pytest.mark.parametrize("summary", [DENIED, ALLOWED])
 def test_every_summary_renders_without_raising(tmp_path, summary):
     assert _service(tmp_path).explain(summary).text
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# THE LLM NEVER EMITS DIGITS
+#
+# The bug this section exists for. Explanations are cached per ARCHETYPE, so one
+# entry is served to every payment of the same shape -- about 24 of them. A
+# model that wrote "your payment of 79.89 rupees" produced prose that was true
+# for the payment that minted the entry and WRONG for every other payment it was
+# later served to. 15 of 50 shipped archetypes carried an amount.
+#
+# The critical insight: validating at generation time CANNOT fix this. At that
+# moment the number matches the record perfectly. It only becomes false later,
+# when the cache serves it to a different payment. So the invariant has to be a
+# property of the TEXT ITSELF, independent of which payment it describes:
+# archetype-level prose must be payment-invariant, and every digit is a
+# payment-specific claim. The template owns every number.
+# ─────────────────────────────────────────────────────────────────────────────
+def test_a_model_that_emits_an_amount_is_rejected(tmp_path):
+    class Numeric:
+        def complete(self, *_a, **_k):
+            return json.dumps(
+                {
+                    "headline": "We could not retry this payment.",
+                    "detail": "Your payment of 22,000.00 rupees went to the ops queue.",
+                }
+            )
+
+    result = _service(tmp_path, client=Numeric()).explain(DENIED)
+    assert result.source == "template"
+    assert "22,000.00 rupees went" not in result.text
+
+
+def test_a_model_that_emits_any_digit_at_all_is_rejected(tmp_path):
+    """Not just amounts. A confidence, a count, a date, a last4 -- every one is
+    payment-specific or run-specific, and none of them can be safely frozen into
+    prose that will be replayed for a different payment."""
+    for detail in (
+        "We are 79% confident about the cause.",
+        "This is the 3rd attempt on this payment.",
+        "The card ending 1111 was declined.",
+        "Blocked by 4 separate rules.",
+    ):
+
+        class Numeric:
+            def __init__(self, d):
+                self.d = d
+
+            def complete(self, *_a, **_k):
+                return json.dumps({"headline": "Blocked.", "detail": self.d})
+
+        result = _service(tmp_path, client=Numeric(detail)).explain(DENIED)
+        assert result.source == "template", f"digit slipped through: {detail!r}"
+
+
+def test_digit_free_prose_is_still_accepted(tmp_path):
+    """The ban must not make the LLM layer useless -- narrative without numbers
+    is exactly what it is for."""
+
+    class Wordy:
+        def complete(self, *_a, **_k):
+            return json.dumps(
+                {
+                    "headline": "We could not retry this payment.",
+                    "detail": "Several separate rules blocked every automated option, "
+                    "so it went to your ops queue for a person to handle.",
+                }
+            )
+
+    assert _service(tmp_path, client=Wordy()).explain(DENIED).source == "llm"
+
+
+def test_cached_prose_can_never_carry_another_payments_amount(tmp_path):
+    """The exact failure, end to end.
+
+    Two payments share an archetype and differ only in amount. The first mints
+    the cache entry; the second is served it. The second's rendered explanation
+    must not contain the first's amount -- and, because the ban is on digits
+    rather than on one field, it cannot contain any of the first's numbers.
+    """
+    other = replace(DENIED, payment_id="pay_OTHER", amount_paise=7_989_00)
+    assert archetype_key(DENIED) == archetype_key(other), "fixtures must share an archetype"
+
+    class LeakyModel:
+        def complete(self, *_a, **_k):
+            return json.dumps(
+                {
+                    "headline": "Escalated to your ops queue.",
+                    "detail": "Your UPI Autopay transaction of 7,989.00 rupees was blocked.",
+                }
+            )
+
+    cache = ArchetypeCache(tmp_path / "c.db")
+    service = ExplanationService(cache=cache, client=LeakyModel())
+
+    minted = service.explain(other)
+    served = service.explain(DENIED)
+
+    # Nothing carrying a digit may ENTER the cache. That is the invariant --
+    # the rendered text for a payment legitimately states that payment's own
+    # amount, because the TEMPLATE owns numbers and always has.
+    assert cache.get(archetype_key(DENIED)) is None, "leaky prose was cached"
+    assert minted.source == "template"
+
+    assert "7,989" not in served.text, "another payment's amount leaked through the cache"
+    assert "22,000" in served.text, "the template must still state this payment's own amount"
+    assert "7,989" in minted.text, "each payment's own template states its own amount"
+
+
+def test_the_shipped_cache_contains_no_digits():
+    """Audits the committed artifact, not just the code path.
+
+    A fix that leaves a poisoned cache in the repo has fixed nothing: the
+    dashboard reads the cache, not the validator.
+    """
+    import re
+    import sqlite3
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[1] / "data" / "explanations.db"
+    if not path.exists():
+        pytest.skip("no committed explanation cache")
+
+    conn = sqlite3.connect(str(path))
+    try:
+        offenders = [
+            (key, sorted(set(re.findall(r"[0-9][0-9,.]*", text))))
+            for key, text in conn.execute("SELECT key, text FROM explanations")
+            if re.search(r"[0-9]", text)
+        ]
+    finally:
+        conn.close()
+
+    assert not offenders, f"{len(offenders)} cached archetypes carry digits: {offenders[:3]}"

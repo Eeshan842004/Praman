@@ -15,6 +15,27 @@ never widen it. Here it holds no authority at all.
 Validation is done in Python regardless of what the gateway claims to support.
 Proxy structured-output support is unreliable, so "the API validated it" is not
 a fact this code is willing to depend on.
+
+THE MODEL NEVER EMITS DIGITS. The template owns every number.
+
+This is the invariant the first version was missing, and it shipped a wrong
+amount to a merchant-facing page. Explanations are cached per ARCHETYPE, so one
+entry is served to every payment of the same shape -- roughly 24 of them. A
+model that wrote "your payment of 79.89 rupees" produced prose that was true for
+the payment that minted the entry and FALSE for every other payment served it.
+Fifteen of fifty shipped archetypes carried an amount.
+
+The insight that determines the fix: validating the number against the decision
+record at GENERATION time cannot help. At that moment it matches perfectly. It
+only becomes false later, when the cache serves it to a different payment. So
+the invariant has to be a property of the text itself, independent of which
+payment it describes -- and since an archetype is by definition the
+payment-invariant part of the story, every digit is a payment-specific claim
+that does not belong in it.
+
+Adding the amount to the cache key would also "work" and would be the wrong
+trade: it turns fifty API calls into twelve hundred and destroys the archetype
+design. The numbers were never the model's job.
 """
 
 from __future__ import annotations
@@ -53,21 +74,45 @@ SYSTEM_PROMPT = (
     "Return ONLY a JSON object with exactly two string keys:\n"
     '  "headline" - one sentence, under 90 characters\n'
     '  "detail"   - two or three sentences of plain English\n\n'
+    "HARD CONSTRAINT: write NO DIGITS AT ALL. No amounts, no percentages, no "
+    "counts, no dates, no card numbers, no tier codes. Your text is reused for "
+    "many payments that differ in amount, so any number you write would be "
+    "wrong for most of them. The interface prints every number itself -- say "
+    '"this payment" and "several rules", never a figure. Text containing '
+    "a digit is discarded.\n\n"
     "Never name a cause or tier other than the ones given. Never claim an "
-    "action other than the one given. Do not invent amounts or rules."
+    "action other than the one given."
 )
 
 
 def _prompt(s: DecisionSummary) -> str:
-    """Only the recorded fields, as data. No instructions from the payload."""
+    """Only the ARCHETYPE, as data. No instructions from the payload.
+
+    Deliberately excludes the amount, the payment id and the raw confidence.
+    Two reasons, and the second is the load-bearing one:
+
+      * the prompt should contain exactly what the cache key contains, or the
+        model is being asked to write prose about facts that vary across the
+        payments the entry will be served to;
+      * a model cannot echo a number it was never given. The digit check below
+        is the guarantee; not sending the number is what stops the model
+        tripping it on almost every call.
+
+    Confidence is passed as a BAND rather than a figure for the same reason.
+    """
     return json.dumps(
         {
             "cause": s.cause,
-            "confidence": round(s.confidence, 2),
             "tier": s.tier,
             "action_taken": s.action,
-            "amount_rupees": round(s.amount_paise / 100, 2),
             "rail": s.rail,
+            "how_confident": (
+                "confident"
+                if s.confidence >= 0.7
+                else "fairly sure"
+                if s.confidence >= 0.4
+                else "unsure"
+            ),
             "rules_that_blocked_each_tier": {k: sorted(v) for k, v in s.tier_evaluations.items()},
         },
         sort_keys=True,
@@ -106,6 +151,13 @@ def _validate(raw: str, s: DecisionSummary) -> str | None:
     for tier in TIERS:
         if tier != s.tier and tier in text:
             return None
+
+    # Every digit is a payment-specific claim, and this prose will be replayed
+    # for other payments that share its archetype. No exception for "the number
+    # happens to be right" -- it is right exactly once, for the payment that
+    # minted the entry, and wrong for the ~24 served it afterwards.
+    if any(ch.isdigit() for ch in text):
+        return None
 
     return text
 

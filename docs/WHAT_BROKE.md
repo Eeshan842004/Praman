@@ -113,6 +113,78 @@ unknown rail still yields a flat likelihood, which is the correct answer for one
 
 ---
 
+## D18 · The LLM stated a wrong amount on a merchant-facing page
+
+**Severity: critical. This one shipped.** Every other defect in this register was
+caught before or during the build. This one was live in the dashboard and was
+found by review.
+
+**What was on screen.** Decision `pay_SIM0000796` rendered a header of
+**₹86.20** while its explanation read *"your UPI Autopay transaction of 79.89
+rupees"*. A wrong number, in the one place the submission claims a model cannot
+misdescribe a decision.
+
+**Root cause — a correct cache with an incomplete invariant.** Explanations are
+keyed per archetype:
+
+```
+sha256(cause | tier | sorted(deny_reasons) | confidence_bucket)
+```
+
+which is deliberate and right: 1,200 decisions collapse to 50 archetypes, so a
+demo costs 50 API calls rather than 1,200. But the amount is not in that key —
+correctly, since it does not change the *story*. One cache entry is therefore
+served to roughly 24 different payments, and it carries the amount of whichever
+payment happened to mint it. **15 of the 50 shipped archetypes contained an
+amount.** Roughly 360 of 1,200 decisions rendered a wrong figure.
+
+**Why the existing validation did not catch it.** The validator already rejected
+prose naming a cause or tier other than the recorded one. Extending that to
+numbers by comparing against the decision record *cannot work*, and this is the
+part worth understanding:
+
+> At generation time the number matches the record perfectly. It only becomes
+> false **later**, when the cache serves that entry to a different payment. No
+> check performed at generation time can see that.
+
+So the invariant has to be a property of the text itself, independent of which
+payment it describes.
+
+**The fix: the model never emits digits. The template owns every number.**
+
+An archetype is by definition the payment-*invariant* part of the story, so any
+digit in archetype-level prose is a payment-specific claim that does not belong
+there. `_validate` now rejects any response containing a digit, and the prompt
+asks for none — the model is also no longer *given* the amount, the payment id
+or the raw confidence, because it cannot echo a number it never received.
+Confidence is passed as a band.
+
+**The fix that was deliberately not chosen.** Adding the amount to the cache key
+would also have removed the wrong number, and would have turned 50 API calls
+into 1,200 — destroying the archetype design to solve a problem the numbers were
+never the model's job to state.
+
+**Audited, not assumed.** Every cached archetype was swept for other
+payment-specific values — payment ids, dates, card last4, bundle revisions, bare
+integers, tier tokens. Only amounts had leaked. The cache was flushed and
+regenerated: **0 of 50 archetypes now contain a digit.**
+
+**Tests added:** a model emitting an amount is rejected; a model emitting *any*
+digit is rejected (confidence, counts, last4, rule counts); digit-free prose is
+still accepted so the layer remains useful; and the end-to-end case — an entry
+minted for one payment and served to another must never carry the first
+payment's amount. Plus one that audits the **committed** cache file, because a
+fix that leaves a poisoned artifact in the repo has fixed nothing: the dashboard
+reads the cache, not the validator.
+
+**Why it belongs in this register.** It is the exact failure mode §10 is about.
+The cache was correct. The validation was correct as far as it went. The prose
+was fluent and plausible. Nothing raised an error, no test failed, and the page
+looked right. It fails by being believable — and unlike the others, it got all
+the way to the shipped product before anyone read the number twice.
+
+---
+
 ## The rest, by origin
 
 ### Pre-existing — found by audit
@@ -161,11 +233,12 @@ payload never had the field.
 
 ## The pattern
 
-Five of these — D1, D5, D12, D15, and arguably D13 — are the same failure in
+Six of these — D1, D5, D12, D15, D18, and arguably D13 — are the same failure in
 different clothes: **a claim that looked verified but was not**. A `GROUP BY`
 that printed "reproduced". A skipped test indistinguishable from a passing one.
 A partial replay printing a leading `+`. A chain-only check printing
-`ATTESTATION PASS`. A point estimate printed without its interval.
+`ATTESTATION PASS`. A point estimate printed without its interval. Fluent prose
+stating a number that was true for a different payment.
 
 None of them would have produced a red build, a stack trace, or a failing test.
 They fail by looking correct. The countermeasures that actually caught them were
@@ -176,4 +249,11 @@ the ones that made silence impossible:
 - `ok` requiring `reproduced == total`, so partial cannot print as complete;
 - a Bayes ceiling test, so an impossible ICR fails rather than impresses;
 - a fresh-clone run, which found three defects three iterations in a row that
-  no amount of local testing had surfaced.
+  no amount of local testing had surfaced;
+- a ban on the model emitting digits at all, so cached prose cannot carry a
+  number that was only ever true for one payment.
+
+D18 is the one that got through. It is in the register precisely because it
+shipped: the countermeasures above were built for failures caught during the
+build, and the one that reached the product was the one nobody thought to point
+a check at.
