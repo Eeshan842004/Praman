@@ -110,3 +110,112 @@ one asserting the Bayes ceiling cannot be beaten.
 After the fix the heuristic scored 0.9608 (up from 0.9451) and the model 0.9029.
 **The pre-fix numbers had the model ahead. The bug was flattering the model, and
 fixing it reversed the decision.**
+
+---
+
+## Gate 1a — ICR ceiling audit (re-run of Gate 1 on a challenged denominator)
+
+**Date:** 2026-09-02
+**Decision:** **Gate 1 stands. Ship heuristic attribution.** The denominator was
+already correct; the audit did not reverse the verdict, and it materially
+strengthened the reasoning behind it.
+
+### The challenge
+
+> The taxonomy posterior sees {symbol, side_signals, region}. LightGBM
+> additionally sees features. The simulator conditions cause ON features. If
+> H(C|X) is computed with X = symbol + side only, the denominator is too small,
+> both ICRs are inflated, and the comparison is unfair to the model that uses
+> features.
+
+This is exactly the shape of defect D10, and it deserved the same treatment:
+computed, not argued.
+
+### Reproduce
+
+```bash
+uv run praman icr-audit --n 20000 --seed 101
+```
+
+### Result — the denominator already uses the full X
+
+```
+Entropy of the cause, conditioned on progressively more (bits):
+  H(C) ................................   2.7498
+  H(C | features) .....................   2.4176
+  H(C | symbol, side, region) .........   0.6280
+  H(C | symbol, side, region, features)   0.5421   <- what ships
+
+Information available about the cause (bits):
+  from features alone .................   0.3322
+  from symbol + side alone ............   2.1218
+  from everything .....................   2.2077
+  features add beyond symbol+side .....   0.0859   (3.89% of the total)
+```
+
+`information_report` derives H(C|X) from `bayes_posterior`, which multiplies the
+generator's own `cause_probs` — that is P(cause | features) — by the symbol and
+side-signal likelihood. So the shipped denominator is **0.5421 bits**, which is
+H(C | symbol, side, region, features). It is *not* 0.6280. `tests/test_entropy.py`
+asserts both the match and the non-match, so this cannot silently regress.
+
+**Both ICRs were already scored against the full ceiling. No recomputation was
+required and the gate did not move.** If anything the framing was generous to the
+model: it is scored against a denominator that includes information the heuristic
+structurally cannot reach.
+
+### What the audit did change: the heuristic was being judged against the wrong bar
+
+A predictor that never reads the features cannot reach ICR 1.0 however good it
+is, because 3.89% of the available information is in features it does not see.
+Its maximum is I(C; symbol, side) / I(C; everything) — the **features-blind
+ceiling**, now computed and printed by `praman ablation`:
+
+```
+features-blind ICR ceiling .  0.9667   (heuristic reaches 99.4% of it)
+information only ML can see.  3.33% of the total  (0.0721 bits)
+```
+
+So the heuristic's 0.9608 is not a 4-point shortfall against 1.0. It is **99.4%
+of its own information-theoretic maximum**. It is not a rule of thumb that
+happens to work; it is the exact Bayes posterior for its information set, and it
+is essentially saturating it.
+
+### Why a model with strictly more information scored lower
+
+Asked directly, and it survives as a **real finding, not an artifact**:
+
+1. **The extra information is small.** Features add 0.0721–0.0859 bits — between
+   3.3% and 3.9% of the total, depending on batch. That is the entire prize.
+2. **The heuristic does not estimate the expensive part, it knows it.** The
+   symbol-to-cause mapping is 96% of the available information, and the heuristic
+   has it exactly — it is the same emission matrix the generator sampled from.
+   LightGBM must *learn* that mapping from ~6,600 training rows across 9 classes.
+3. **Estimation error on the 96% exceeds the 4% gain.** The model spends variance
+   re-learning what the baseline already knows, to chase a few hundredths of a
+   bit. Net ICR −0.0579.
+
+This is ordinary bias–variance, stated in bits: a correctly-specified analytic
+model beats a flexible one when the extra flexibility buys little and costs
+estimation variance. It is not evidence that ML cannot help on this problem.
+
+**Where it would flip.** The result is a property of this generator's emission
+matrix being sharp. Make the decline codes more ambiguous — which is what real
+`05` traffic looks like — and the symbol's share falls, the features' share
+rises, and the model's opportunity grows. On real traffic with a genuinely
+ambiguous code distribution this gate could legitimately go the other way, and
+the honest claim is about *this* simulator, not about payments in general.
+
+### Verdict, unchanged
+
+```
+held-out macro AUC .........  0.9566   (gate 0.70: PASS)
+features-blind ceiling .....  0.9667   heuristic reaches 99.4%
+ICR heuristic / ML .........  0.9608 / 0.9029   delta -0.0579
+recovery delta (paired) ....  Rs 2.96  95% CI [-0.19, 6.56]  straddles zero
+VERDICT ....................  ship the HEURISTIC
+```
+
+The superseded Gate 1 entry above is retained deliberately. It records the
+verdict before this audit and before defect D10, and a gate log that only keeps
+its final answer is not a log.

@@ -34,7 +34,12 @@ from typing import Any
 
 import numpy as np
 
-from praman.attribution.bayes import heuristic_posterior, information_report
+from praman.attribution.bayes import (
+    EntropyDecomposition,
+    entropy_decomposition,
+    heuristic_posterior,
+    information_report,
+)
 from praman.attribution.featurize import to_frame
 from praman.kernel.opa_client import PolicyClient
 from praman.ledger.chain import connect
@@ -117,6 +122,7 @@ class Ablation:
     gate_auc: float
     gate_min_auc: float
     delta: Estimate | None = None
+    ceiling: EntropyDecomposition | None = None
 
     @property
     def moved_from_terminate(self) -> float:
@@ -202,6 +208,14 @@ class Ablation:
             f"   (gate {self.gate_min_auc}: "
             f"{'PASS' if self.gate_auc >= self.gate_min_auc else 'FAIL'})",
         ]
+        if self.ceiling is not None:
+            c = self.ceiling
+            lines += [
+                f"  features-blind ICR ceiling .  {c.features_blind_ceiling:.4f}"
+                f"   (heuristic reaches {h.icr / c.features_blind_ceiling:.1%} of it)",
+                f"  information only ML can see.  {c.features_share:.2%} of the total"
+                f"  ({c.mi_total_bits - c.mi_symbol_bits:.4f} bits)",
+            ]
         if self.delta is not None:
             lines += [
                 f"  recovery delta (paired) ....  Rs {self.delta.tau_hat / 100:,.2f}"
@@ -239,7 +253,21 @@ class Ablation:
                     "  number the kernel reads. The confidence floor exists to stop that,",
                     "  and a sharper wrong posterior walks straight through it.",
                 ]
+            if self.ceiling is not None:
+                c = self.ceiling
+                lines += [
+                    "",
+                    "  Why a model with STRICTLY MORE information scored lower: the",
+                    f"  extra information is only {c.features_share:.2%} of the total"
+                    f" ({c.mi_total_bits - c.mi_symbol_bits:.4f} bits).",
+                    "  The heuristic does not estimate the symbol-to-cause mapping, it",
+                    "  KNOWS it -- it is the exact Bayes posterior for its information",
+                    "  set. The model must learn that same mapping from finite data",
+                    "  while chasing a few extra hundredths of a bit, and its estimation",
+                    "  error on the 96% it shares costs more than the 4% it gains.",
+                ]
             lines += [
+                "",
                 "  A model that adds nothing is not free: it adds a training step, a",
                 "  serialised artifact, a version to audit, and a second thing that",
                 "  can silently go wrong.",
@@ -291,6 +319,7 @@ def run_ablation(
             ledger_dir / f"{experiment_prefix}-ml.db",
             experiment_prefix,
         ),
+        ceiling=entropy_decomposition(batch),
     )
 
 

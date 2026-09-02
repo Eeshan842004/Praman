@@ -18,6 +18,7 @@ from collections import Counter
 from pathlib import Path
 
 from praman.attribution.ablation import run_ablation
+from praman.attribution.bayes import entropy_decomposition
 from praman.attribution.model import GATE1_MIN_AUC, train_attribution_model
 from praman.ingest.store import connect_ingest, pending
 from praman.ingest.worker import process_pending
@@ -449,6 +450,18 @@ def _cmd_ablation(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_icr_audit(args: argparse.Namespace) -> int:
+    """Where does the information about the cause actually live?
+
+    The ICR denominator has to condition on EVERY signal any candidate
+    predictor can read, or the ratio flatters whichever one it was built
+    around. This decomposes it so the denominator can be checked instead of
+    assumed.
+    """
+    print(entropy_decomposition(generate_batch(n=args.n, seed=args.seed)).render())
+    return EXIT_OK
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="praman",
@@ -522,6 +535,14 @@ def build_parser() -> argparse.ArgumentParser:
     w.add_argument("--experiment-id", default="praman-v1")
     w.add_argument("--holdout-pct", type=int, default=DEFAULT_HOLDOUT_PCT)
     w.set_defaults(func=_cmd_process_webhooks)
+
+    ia = sub.add_parser(
+        "icr-audit",
+        help="decompose H(C|X): which signals carry the information about the cause",
+    )
+    ia.add_argument("--n", type=int, default=20000)
+    ia.add_argument("--seed", type=int, default=101)
+    ia.set_defaults(func=_cmd_icr_audit)
 
     a = sub.add_parser(
         "ablation",

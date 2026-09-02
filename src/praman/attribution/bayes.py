@@ -86,6 +86,118 @@ def heuristic_posterior(batch: DeclineBatch, region: str = "IN") -> np.ndarray:
 
 
 @dataclass(frozen=True, slots=True)
+class EntropyDecomposition:
+    """Where the information about the cause actually lives.
+
+    Answers the audit question "which X does H(C|X) condition on?" by computing
+    every conditional separately, so the ICR denominator can be checked rather
+    than assumed. All values are nats internally; the properties report bits.
+    """
+
+    n: int
+    h_marginal: float  # H(C)
+    h_given_features: float  # H(C | features)
+    h_given_symbol: float  # H(C | symbol, side, rail, region)
+    h_given_full: float  # H(C | symbol, side, rail, region, features)
+
+    @property
+    def mi_features_bits(self) -> float:
+        return (self.h_marginal - self.h_given_features) / _LOG2
+
+    @property
+    def mi_symbol_bits(self) -> float:
+        return (self.h_marginal - self.h_given_symbol) / _LOG2
+
+    @property
+    def mi_total_bits(self) -> float:
+        return (self.h_marginal - self.h_given_full) / _LOG2
+
+    @property
+    def features_share(self) -> float:
+        """Share of ALL available information that lives only in the features.
+
+        This is the entire opportunity a feature-consuming model has over a
+        features-blind one. If it is small, a learned model has very little to
+        win and must not lose more than that in estimation error.
+        """
+        return (self.mi_total_bits - self.mi_symbol_bits) / self.mi_total_bits
+
+    @property
+    def features_blind_ceiling(self) -> float:
+        """Maximum ICR achievable WITHOUT reading the features.
+
+        The taxonomy heuristic cannot reach 1.0 however good it is, because part
+        of the available information is in features it never sees. Scoring it
+        against 1.0 and calling the gap a shortfall would be a category error;
+        this is the number it should be compared against.
+        """
+        return self.mi_symbol_bits / self.mi_total_bits
+
+    def render(self) -> str:
+        w = 66
+        return "\n".join(
+            [
+                f"ICR CEILING AUDIT . {self.n:,} declines",
+                "-" * w,
+                "  Entropy of the cause, conditioned on progressively more (bits):",
+                f"    H(C) ................................  {self.h_marginal / _LOG2:7.4f}",
+                f"    H(C | features) .....................  {self.h_given_features / _LOG2:7.4f}",
+                f"    H(C | symbol, side, region) .........  {self.h_given_symbol / _LOG2:7.4f}",
+                f"    H(C | symbol, side, region, features)  {self.h_given_full / _LOG2:7.4f}",
+                "",
+                "  Information available about the cause (bits):",
+                f"    from features alone .................  {self.mi_features_bits:7.4f}",
+                f"    from symbol + side alone ............  {self.mi_symbol_bits:7.4f}",
+                f"    from everything .....................  {self.mi_total_bits:7.4f}",
+                "",
+                f"    features add beyond symbol+side .....  "
+                f"{self.mi_total_bits - self.mi_symbol_bits:7.4f}   "
+                f"({self.features_share:.2%} of the total)",
+                "-" * w,
+                f"  features-blind ceiling ..............  {self.features_blind_ceiling:.4f}",
+                "    the highest ICR any predictor that ignores the features can",
+                "    reach. The ICR denominator uses the FULL set, so a heuristic",
+                "    landing here is at its own maximum, not falling short of 1.0.",
+            ]
+        )
+
+
+def entropy_decomposition(batch: DeclineBatch) -> EntropyDecomposition:
+    """Decompose the information about the cause across information sets.
+
+    Exact, not estimated. The symbol and side signals are emitted conditional on
+    the CAUSE alone (given rail), so they are independent of the features given
+    the cause -- which makes both conditionals closed-form:
+
+        P(C | symbol, side, rail)            = pi          x lik / Z
+        P(C | symbol, side, rail, features)  = cause_probs x lik / Z
+
+    `pi` is the generator's true marginal, taken as the column mean of its own
+    `cause_probs` rather than from the taxonomy's stated prior, so nothing here
+    depends on the generator's fixed-point correction having fully converged.
+    """
+    tax = load_taxonomy()
+    lik = np.array([[tax.likelihood(_observation(d))[c] for c in CAUSES] for d in batch.declines])
+    cause_probs = np.asarray(batch.cause_probs, dtype=float)
+    pi = cause_probs.mean(axis=0)
+
+    def _norm(x: np.ndarray) -> np.ndarray:
+        total = x.sum(axis=1, keepdims=True)
+        return np.where(total > 0, x / np.maximum(total, _EPS), pi[None, :])
+
+    def _h(p: np.ndarray) -> float:
+        return float(-(p * np.log(np.clip(p, _EPS, None))).sum(axis=1).mean())
+
+    return EntropyDecomposition(
+        n=len(batch.declines),
+        h_marginal=float(-(pi * np.log(np.clip(pi, _EPS, None))).sum()),
+        h_given_features=_h(cause_probs),
+        h_given_symbol=_h(_norm(pi[None, :] * lik)),
+        h_given_full=_h(_norm(cause_probs * lik)),
+    )
+
+
+@dataclass(frozen=True, slots=True)
 class InformationReport:
     n: int
     h_marginal: float  # H(C), nats
@@ -159,8 +271,10 @@ def information_report(batch: DeclineBatch, model_probs: np.ndarray) -> Informat
 
 
 __all__ = [
+    "EntropyDecomposition",
     "InformationReport",
     "bayes_posterior",
+    "entropy_decomposition",
     "heuristic_posterior",
     "information_report",
 ]
