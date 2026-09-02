@@ -55,12 +55,16 @@ else
   [ "$os" = "linux" ] && asset="${asset}_static"
   [ "$os" = "windows" ] && asset="${asset}.exe"
 
-  say "fetching OPA ${OPA_VERSION} into tools/ ..."
+  target="tools/opa"
+  [ "$os" = "windows" ] && target="tools/opa.exe"
+
+  say "fetching OPA ${OPA_VERSION} into ${target} ..."
   mkdir -p tools
-  curl -fsSL -o tools/opa "https://openpolicyagent.org/downloads/v${OPA_VERSION}/${asset}" \
+  curl -fsSL -o "$target" \
+    "https://openpolicyagent.org/downloads/v${OPA_VERSION}/${asset}" \
     || die "could not download OPA. Check network access to openpolicyagent.org."
-  chmod +x tools/opa
-  OPA="tools/opa"
+  chmod +x "$target"
+  OPA="$target"
 fi
 say "opa: $("$OPA" version | head -1)"
 
@@ -76,4 +80,9 @@ The committed one lives at data/ledger.db. To rebuild it:
 # ── Attest ────────────────────────────────────────────────────────────────────
 say "attesting $LEDGER ..."
 echo
-exec uv run --quiet praman verify --ledger "$LEDGER" --opa "$OPA" --require-replay
+# --no-dev: a judge needs the runtime dependencies, not pytest, mypy and
+# bandit. Installing the dev group is slower and, on Windows, fails
+# outright -- mypy's wheel rewrites a PE trampoline and hits a permissions
+# error. Attestation must not depend on the test toolchain installing.
+exec uv run --no-dev --quiet praman verify \
+  --ledger "$LEDGER" --opa "$OPA" --require-replay

@@ -67,5 +67,8 @@ The committed one lives at data/ledger.db. To rebuild it:
 # ── Attest ────────────────────────────────────────────────────────────────────
 Say "attesting $Ledger ..."
 Write-Host ''
-& uv run --quiet praman verify --ledger $Ledger --opa $opa --require-replay
+# --no-dev: a judge needs the runtime dependencies, not pytest, mypy and
+# bandit. Installing the dev group is slower and, on Windows, fails outright
+# -- mypy's wheel rewrites a PE trampoline and hits a permissions error.
+& uv run --no-dev --quiet praman verify --ledger $Ledger --opa $opa --require-replay
 exit $LASTEXITCODE
