@@ -238,7 +238,42 @@ against live traffic, not only against the documented schema.
 **What it does not:** any claim about production-scale traffic. Nine failures
 from one test account is an integration check, not a sample.
 
-## 12. Scope boundaries
+## 13. The measurement technique is not novel, and the claim is narrower than it sounds
+
+Holdout-based incrementality is a **mature commodity**. Haus, Recast, Northbeam,
+Measured and INCRMNTAL sell it in adtech; Google's GeoLift and CausalImpact are
+open source. Inside payments, Checkout.com runs control groups for acceptance
+optimisation, and [Slicker](https://www.slickerhq.com/) (May 2026) sells
+failed-payment recovery measured by clinical-grade AABB testing — 50/50 split,
+dollars recovered, p-value reported, as a pre-sales performance guarantee.
+
+**We do not claim to have invented counterfactual measurement of payment
+recovery.** Anyone can find Slicker in one search, and a submission whose
+headline claim dies to one search deserves to.
+
+The defensible claim is narrower:
+
+1. **No incumbent exposes a merchant-auditable counterfactual.** Every control
+   group above is internal to the vendor. Ours is a hash-chained, append-only
+   ledger the merchant replays themselves, with arm assignment re-derivable from
+   `blake2b(experiment_id ‖ customer_id)` without trusting us.
+2. **None validates its estimator's coverage.** A p-value says an effect is
+   unlikely to be zero. It says nothing about whether a 95% interval contains the
+   truth 95% of the time. We measure that against 200 sealed worlds and gate on
+   it — outside [92%, 97%] the command exits non-zero and the finding is
+   withdrawn.
+3. **Two design choices we would defend against the 50/50 standard.** A 50/50
+   split buys precision by sacrificing half the addressable revenue to
+   measurement; a 20% cluster holdout with CUPED recovers most of that precision
+   from a fifth of the give-up. And splitting *payments* rather than *customers*
+   leaks treatment into control whenever declines repeat per customer, biasing
+   the estimate toward zero (§9).
+
+**What this does not license:** any claim that our estimator is better than
+theirs. We have not run theirs. The claim is about what is *exposed to the
+merchant* and what is *validated*, not about who estimates more accurately.
+
+## 14. Scope boundaries
 
 Not built, deliberately: authentication, multi-tenancy, RBAC, real-time streaming,
 live multi-processor integrations, mobile, or email/SMS delivery. Portability

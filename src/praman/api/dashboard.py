@@ -29,6 +29,7 @@ from praman.config import settings
 from praman.explain.cache import ArchetypeCache
 from praman.explain.from_ledger import summary_at
 from praman.explain.service import ExplanationService
+from praman.kernel.ladder import proposed_tiers_for
 from praman.ledger.chain import connect, verify
 from praman.measure.from_ledger import estimate_from_ledger, naive_gross_from_ledger
 from praman.taxonomy import CAUSES
@@ -46,12 +47,69 @@ TIER_ACTION = {
 # Kept here rather than indexed by loop position in the template: the bar must
 # stay the same colour for a tier even when a tier is absent from a batch.
 TIER_COLOUR = {
-    "T0": "bg-slate-500",
-    "T1": "bg-sky-400",
-    "T2": "bg-violet-400",
-    "T3": "bg-amber-400",
-    "T4": "bg-emerald-400",
+    "T0": "var(--t0)",
+    "T1": "var(--t1)",
+    "T2": "var(--t2)",
+    "T3": "var(--t3)",
+    "T4": "var(--t4)",
 }
+
+
+# A posterior at or above this is not ambiguous, and the page must not describe
+# it as such. Sharpness where the decline code is informative is as much the
+# thesis as width where it is not -- the taxonomy is meant to do both.
+SHARP_POSTERIOR = 0.95
+
+
+def _tier_states(summary) -> list[dict]:
+    """What happened at every tier, with THREE distinct outcomes.
+
+    Rendering only allow/deny conflates two different things and misreads the
+    audit trail. A tier can be:
+
+        taken          the ladder proposed it, policy allowed it, we acted
+        denied         policy refused it, with reasons
+        not preferred  policy allowed it, but a higher-ranked tier also
+                       allowed and won. Legal, not chosen.
+        not proposed   the ladder never asked -- the cause is not retryable, or
+                       is a hard decline. Policy permission is irrelevant here.
+
+    Without the last two, "T1 ALLOW" beside a T3 outcome reads as ignoring a
+    permitted action. The real reason is preference order: T3 is the default
+    tier for an authentication failure, because asking the customer to redo the
+    OTP is the correct fix, and it is tried first.
+
+    Eligibility comes from `proposed_tiers_for`, the same function the kernel
+    uses -- never a copy of the rule.
+    """
+    proposed = proposed_tiers_for(summary.cause)
+    rank = {tier: i + 1 for i, tier in enumerate(proposed)}
+    out = []
+
+    for tier in ("T1", "T2", "T3", "T4"):
+        reasons = sorted(summary.tier_evaluations.get(tier, []))
+        row = {"tier": tier, "reasons": reasons, "rank": rank.get(tier)}
+
+        if tier == summary.tier:
+            row |= {"state": "taken", "note": "the action we took"}
+        elif reasons:
+            row |= {"state": "deny", "note": ""}
+        elif tier == "T4":
+            # Never "proposed": escalation is the terminal fallback, always
+            # evaluated and unconditionally legal. It is not a missed action.
+            row |= {"state": "fallback", "note": "terminal fallback, always legal"}
+        elif tier in rank:
+            row |= {
+                "state": "not-preferred",
+                "note": f"legal, but ranked #{rank[tier]} for this cause",
+            }
+        else:
+            row |= {
+                "state": "not-proposed",
+                "note": "the ladder never asked: this cause is not retryable",
+            }
+        out.append(row)
+    return out
 
 
 def _estimator_artifact() -> dict | None:
@@ -145,6 +203,9 @@ def build_dashboard_router(
                 )
             ]
             experiments = _experiments(conn)
+            bundles = conn.execute(
+                "SELECT COUNT(DISTINCT bundle_revision) FROM ledger WHERE entry_type = 'DECISION'"
+            ).fetchone()[0]
         finally:
             conn.close()
 
@@ -169,6 +230,8 @@ def build_dashboard_router(
                 "recent": recent,
                 "experiments": experiments,
                 "primary": _estimator_artifact(),
+                "bundles": bundles,
+                "page": "batch",
             },
         )
 
@@ -201,6 +264,8 @@ def build_dashboard_router(
             {
                 "s": summary,
                 "posterior": posterior,
+                "tier_states": _tier_states(summary),
+                "is_sharp": summary.confidence >= SHARP_POSTERIOR,
                 "symbol": row[1],
                 "arm": row[2],
                 "opa_allow": bool(row[3]),
@@ -208,6 +273,7 @@ def build_dashboard_router(
                 "explanation": explanation,
                 "tier_action": TIER_ACTION,
                 "tiers": ["T1", "T2", "T3", "T4"],
+                "page": "decision",
             },
         )
 
@@ -246,6 +312,7 @@ def build_dashboard_router(
                 "decisions": decisions,
                 "unreplayable": unreplayable,
                 "ledger": str(path),
+                "page": "attestation",
             },
         )
 

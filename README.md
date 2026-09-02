@@ -13,13 +13,23 @@ Razorpay AI Buildathon 2026 · Track 03 — AI Revenue Recovery
 
 Roughly half of all `05 — Do Not Honor` declines are insufficient-funds refusals
 in disguise: the issuer sees the balance, the risk score, the velocity and the
-device, and the merchant sees two digits. That much is well known. The part
-nobody talks about is that **every payments incumbent can recover failed revenue
-and none of them can prove how much of it they actually caused** — the industry
-reports *gross* recovery, which silently absorbs every customer who would have
-retried anyway. Praman infers the cause as a distribution rather than a guess,
-acts only where a versioned policy engine permits, records every decision before
-acting, and measures the effect against a sealed counterfactual.
+device, and the merchant sees two digits. Most recovery vendors report *gross*
+recovery, which silently absorbs every customer who would have retried anyway.
+
+**A few now measure incrementally, and we should say so.** Checkout.com runs
+control groups for acceptance optimisation; [Slicker](https://www.slickerhq.com/)
+runs 50/50 AABB tests with p-values as a pre-sales guarantee; holdout
+incrementality has been a commodity in adtech for years (Haus, Recast, Measured,
+GeoLift, CausalImpact). **The technique is not novel and we do not claim it is.**
+
+What is still unoccupied is narrower: **no incumbent exposes a merchant-auditable
+counterfactual, and none validates its estimator's coverage.** Their control
+group is internal — you take the number on trust. And a p-value tells you an
+effect is unlikely to be zero; it does not tell you your 95% interval contains
+the answer 95% of the time. Praman infers the cause as a distribution rather than
+a guess, acts only where a versioned policy engine permits, records every decision
+before acting, and hands the merchant a hash-chained ledger they can replay
+themselves.
 
 ## Verify it yourself — the first 30 seconds
 
@@ -34,8 +44,8 @@ git clone https://github.com/Eeshan842004/Praman && cd Praman
 ```
 + 2988 entries . chain intact (2988 entries, head a2ff7d7d...)
 + 1200/1200 decisions reproduced against 2 pinned bundle(s)
-    bundle 4ca4787c0a1eea75 : entries 1-988     (400 decisions)
-    bundle bd45b0c7e5ce66a3 : entries 991-2986  (800 decisions)
+    bundle 4ca4787c0a1eea75 : decision entries 1-988     (400 decisions)
+    bundle bd45b0c7e5ce66a3 : decision entries 991-2986  (800 decisions)
 + 0 policy violations across 588 actuations
 ATTESTATION PASS
 ```
@@ -75,7 +85,17 @@ without an interval.
 
 We do not claim recovered revenue. We claim the **estimator recovers the truth**,
 and Primary is the evidence. Coverage is a hard test: it fails if the interval is
-too narrow *or* too wide.
+too narrow *or* too wide — and it is the tier no competitor publishes. Slicker
+reports a p-value on a 50/50 split; Checkout.com runs an internal control group.
+Neither demonstrates that their interval contains the answer at the stated rate,
+which is what Primary measures.
+
+Two design differences worth naming. We hold out **20%, not 50%** — a 50/50 split
+buys precision by giving up half the addressable revenue, where a cluster holdout
+with CUPED recovers most of that precision from a fifth of the give-up. And we
+randomise at the **customer, not the payment**: subscription declines repeat per
+customer, so payment-level splitting leaks treatment into control and biases the
+estimate toward zero.
 
 The third tier is deliberate. Our interval there is embarrassingly wide and it
 contains the answer; the naive estimate is precise, ships no interval, and misses.
@@ -194,7 +214,7 @@ model.
 | 7 | Estimator validation harness | done |
 | 8 | Dashboard + explanations | done |
 
-400 tests · 28/28 policy tests at 100% coverage · policy kernel frozen at 14 rules.
+417 tests · 28/28 policy tests at 100% coverage · policy kernel frozen at 14 rules.
 
 ## Licence
 

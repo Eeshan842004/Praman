@@ -187,3 +187,81 @@ def test_the_bundle_span_column_says_it_counts_decision_entries(client):
     body = client.get("/attestation").text.lower()
     assert "decision entries" in body
     assert "actuation" in body and "outcome" in body
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# The page must not contradict its own data
+# ─────────────────────────────────────────────────────────────────────────────
+def _seq_where(ledger, predicate_sql):
+    conn = connect(ledger)
+    try:
+        row = conn.execute(
+            f"SELECT seq FROM ledger WHERE entry_type = 'DECISION' AND {predicate_sql} LIMIT 1"
+        ).fetchone()
+    finally:
+        conn.close()
+    return int(row[0]) if row else None
+
+
+def test_a_sharp_posterior_is_not_described_as_ambiguous(client, ledger):
+    """The copy said "the normaliser does not resolve it to one cause -- the
+    ambiguity is the product" directly above a posterior reading 1.000.
+
+    Sharpness where the code is informative is ALSO the thesis: the taxonomy is
+    meant to be sharp when the rail says something definite and wide when it
+    says nothing. Printing the ambiguity line over a degenerate posterior argues
+    against the page's own table.
+    """
+    seq = _seq_where(ledger, "CAST(posterior AS REAL) >= 0.95")
+    if seq is None:
+        pytest.skip("no sharp posterior in this batch")
+    body = client.get(f"/decision/{seq}").text.lower()
+    assert "ambiguity is the product" not in body
+    assert "unambiguous" in body or "correctly sharp" in body
+
+
+def test_an_ambiguous_posterior_keeps_the_ambiguity_copy(client, ledger):
+    """Code 05 is the case the whole product exists for, and the page has to
+    say so when it is looking at one."""
+    seq = _seq_where(ledger, "CAST(posterior AS REAL) < 0.60")
+    if seq is None:
+        pytest.skip("no ambiguous posterior in this batch")
+    body = client.get(f"/decision/{seq}").text.lower()
+    assert "ambiguity" in body
+
+
+def test_a_tier_the_ladder_never_proposed_is_not_shown_as_a_missed_action(client, ledger):
+    """Ladder eligibility and policy permission are different things.
+
+    A non-retryable cause never proposes T1/T2, so policy may well allow them
+    while the ladder never asked. Rendering that as a plain ALLOW next to a
+    different outcome reads as ignoring a permitted action.
+    """
+    seq = _seq_where(ledger, "cause = 'EXPIRED_OR_INVALID_CREDENTIAL'")
+    if seq is None:
+        pytest.skip("no non-retryable cause in this batch")
+    body = client.get(f"/decision/{seq}").text.lower()
+    assert "not proposed" in body
+
+
+def test_a_permitted_but_lower_ranked_tier_says_so(client, ledger):
+    """The actual reason T1 showed ALLOW beside a T3 outcome: T3 is the cause's
+    default tier and is tried first. Both were legal; preference decided."""
+    seq = _seq_where(ledger, "cause = 'AUTH_FAILURE' AND tier = 'T3'")
+    if seq is None:
+        pytest.skip("no AUTH_FAILURE T3 decision in this batch")
+    body = client.get(f"/decision/{seq}").text.lower()
+    assert "not preferred" in body or "preference" in body
+    assert "taken" in body
+
+
+def test_the_taken_tier_is_marked_as_taken(client, any_decision_seq):
+    assert "taken" in client.get(f"/decision/{any_decision_seq}").text.lower()
+
+
+def test_the_per_batch_copy_does_not_argue_with_its_own_table(client):
+    """It said the batches are "deliberately too small to power" while both rows
+    showed EXCL. ZERO = yes. Underpowered means you may miss, not that you must."""
+    body = client.get("/").text.lower()
+    assert "too small to power" not in body
+    assert "below the mde" in body or "arithmetic rather than evidence" in body

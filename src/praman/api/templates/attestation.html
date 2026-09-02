@@ -1,88 +1,132 @@
 {% extends "base.html" %}
-{% block title %}Praman - attestation{% endblock %}
+{% block title %}Praman — attestation{% endblock %}
 {% block content %}
 
-<div class="border rounded p-5 mb-8 {% if ok %}border-emerald-800 bg-emerald-950/30{% else %}border-red-800 bg-red-950/30{% endif %}">
-  <div class="text-lg font-semibold {% if ok %}text-emerald-400{% else %}text-red-400{% endif %}">
-    {% if ok %}CHAIN INTACT{% else %}CHAIN BROKEN{% endif %}
+{# ── the one statement this page exists to make ──────────────────────── #}
+<section class="rise mb-10">
+  <div class="eyebrow mb-3">Evidence</div>
+  <div class="flex flex-wrap items-end gap-x-7 gap-y-4">
+    <div>
+      <div class="font-semibold leading-none tracking-tight"
+           style="font-size: clamp(40px, 8vw, 64px); color: {% if ok %}var(--ok){% else %}var(--bad){% endif %}">
+        {% if ok %}Chain intact{% else %}Chain broken{% endif %}
+      </div>
+      <div class="text-[13.5px] mt-3" style="color: var(--text-2)">{{ message }}</div>
+      {% if not ok %}
+      <div class="text-[13.5px] mt-1" style="color: var(--bad)">first broken entry: {{ broken_at }}</div>
+      {% endif %}
+    </div>
+    <div class="pb-3 ml-auto">
+      <span class="pill {% if ok %}pill-ok{% else %}pill-bad{% endif %}">
+        <span class="dot"></span>{% if ok %}verified live{% else %}failed{% endif %}
+      </span>
+    </div>
   </div>
-  <div class="text-sm text-slate-400 mt-1">{{ message }}</div>
-  {% if not ok %}<div class="text-sm text-red-400 mt-1">first broken entry: {{ broken_at }}</div>{% endif %}
-  <div class="text-xs text-slate-600 mt-3">{{ ledger }}</div>
-</div>
+  <div class="mono text-[12px] mt-4" style="color: var(--text-3)">{{ ledger }}</div>
+</section>
 
-<div class="grid grid-cols-3 gap-px bg-slate-800 border border-slate-800 rounded mb-8">
-  <div class="bg-slate-900 p-4">
-    <div class="text-2xl font-semibold text-white num">{{ "{:,}".format(entries) }}</div>
-    <div class="text-xs text-slate-500 uppercase tracking-wide mt-1">entries hashed</div>
+<section class="rise grid grid-cols-1 sm:grid-cols-3 gap-3 mb-10" style="animation-delay:.06s">
+  <div class="card px-4 py-3.5">
+    <div class="num text-[24px] font-semibold" style="color: var(--text)">{{ "{:,}".format(entries) }}</div>
+    <div class="label mt-1">entries hashed</div>
   </div>
-  <div class="bg-slate-900 p-4">
-    <div class="text-2xl font-semibold text-white num">{{ "{:,}".format(decisions) }}</div>
-    <div class="text-xs text-slate-500 uppercase tracking-wide mt-1">decisions</div>
+  <div class="card px-4 py-3.5">
+    <div class="num text-[24px] font-semibold" style="color: var(--text)">{{ "{:,}".format(decisions) }}</div>
+    <div class="label mt-1">decisions</div>
   </div>
-  <div class="bg-slate-900 p-4">
-    <div class="text-2xl font-semibold num {% if unreplayable == 0 %}text-emerald-400{% else %}text-red-400{% endif %}">{{ unreplayable }}</div>
-    <div class="text-xs text-slate-500 uppercase tracking-wide mt-1">without a stored input</div>
+  <div class="card px-4 py-3.5">
+    <div class="num text-[24px] font-semibold"
+         style="color: {% if unreplayable == 0 %}var(--ok){% else %}var(--bad){% endif %}">{{ unreplayable }}</div>
+    <div class="label mt-1">without a stored input</div>
   </div>
-</div>
+</section>
 
-<section class="mb-8">
-  <h2 class="text-sm uppercase tracking-wider text-slate-400 mb-1">Pinned bundle spans</h2>
-  <p class="text-xs text-slate-500 mb-4">
-    Each span replays against the bundle that actually authorised it. Two spans is what makes this
-    an audit of a policy <em class="text-slate-400">change</em>, not just of a policy.
-    <br>
-    Ranges cover <strong class="text-slate-400">decision entries only</strong>, so consecutive
-    spans do not touch: the entries between them are the actuation and outcome rows belonging to
-    the last decision of the earlier span. Only a decision carries a bundle revision - an actuation
-    is not authorised, the decision behind it was.
+{# ── bundle spans ────────────────────────────────────────────────────── #}
+<section class="mb-10 rise" style="animation-delay:.12s">
+  <h2 class="text-[17px] font-semibold" style="color: var(--text)">Pinned bundle spans</h2>
+  <p class="text-[13px] mt-1 mb-5 max-w-3xl" style="color: var(--text-3)">
+    Each span replays against the bundle that actually authorised it. Two spans is what makes this an
+    audit of a policy <em style="color: var(--text-2)">change</em>, not just of a policy.
+    Ranges cover <strong style="color: var(--text-2)">decision entries only</strong>, so consecutive
+    spans do not touch — the entries between them are the actuation and outcome rows belonging to the
+    last decision of the earlier span. Only a decision carries a bundle revision; an actuation is not
+    authorised, the decision behind it was.
   </p>
-  <div class="overflow-x-auto">
-  <table class="w-full text-sm">
-    <thead><tr class="text-xs uppercase tracking-wider text-slate-500 border-b border-slate-800">
-      <th class="text-left pb-2">bundle revision</th>
-      <th class="text-right pb-2">decision entries</th>
-      <th class="text-right pb-2">decisions</th>
-    </tr></thead>
-    <tbody>
-    {% for span in spans %}
-      <tr class="border-b border-slate-900">
-        <td class="py-1.5 text-slate-300">{{ span.revision }}</td>
-        <td class="py-1.5 text-right num text-slate-400">{{ span.lo }} - {{ span.hi }}</td>
-        <td class="py-1.5 text-right num text-white">{{ "{:,}".format(span.count) }}</td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
+  <div class="card overflow-x-auto">
+    <table>
+      <thead><tr>
+        <th class="pl-4">bundle revision</th>
+        <th class="tnum">decision entries</th>
+        <th class="tnum">decisions</th>
+      </tr></thead>
+      <tbody>
+      {% for span in spans %}
+        <tr>
+          <td class="pl-4 mono text-[12.5px]" style="color: var(--brass)">{{ span.revision }}</td>
+          <td class="tnum text-[12.5px]" style="color: var(--text-2)">{{ span.lo }} – {{ span.hi }}</td>
+          <td class="tnum" style="color: var(--text)">{{ "{:,}".format(span.count) }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
   </div>
 </section>
 
-<section class="border border-slate-800 rounded p-4">
-  <h2 class="text-sm uppercase tracking-wider text-slate-400 mb-3">Two independent checks</h2>
-  <div class="text-sm text-slate-400 space-y-3">
-    <p>
-      <span class="text-white">Chain.</span> Recomputes
-      <code class="text-slate-300">sha256(prev_hash || canonical_bytes(row))</code> over every entry.
-      Proves nothing was changed after the fact. This page runs it live, which is why the banner
-      above is a measurement and not a label.
+{# ── the two checks ──────────────────────────────────────────────────── #}
+<section class="grid md:grid-cols-2 gap-4 rise" style="animation-delay:.18s">
+  <div class="card p-5">
+    <div class="flex items-center gap-2.5 mb-3">
+      <span class="w-2 h-2 rounded-sm" style="background: var(--t1)"></span>
+      <h3 class="text-[15px] font-semibold" style="color: var(--text)">Chain</h3>
+    </div>
+    <p class="text-[13px]" style="color: var(--text-2)">
+      Recomputes <code>sha256(prev_hash || canonical_bytes(row))</code> over every entry. Proves
+      <strong style="color: var(--text)">nothing was changed after the fact</strong>. This page runs
+      it live, which is why the banner above is a measurement rather than a label.
     </p>
-    <p>
-      <span class="text-white">Replay.</span> Re-POSTs every stored policy input to OPA loaded with
-      that entry's pinned bundle and compares the verdict. Proves the record was
-      <em>true when written</em> - which a hash chain structurally cannot do, because a writer that
-      bypasses the policy engine and records its own verdict still hashes perfectly.
-    </p>
-    <p class="text-slate-500">
-      Replay spawns a policy engine per bundle, so it runs from the terminal rather than on a page
-      load:
-      <code class="text-slate-300">./scripts/verify.sh</code>
-    </p>
-    <p class="text-slate-500 text-xs pt-2 border-t border-slate-800">
-      Honest limit: this is tamper-<em>evident</em>, not tamper-<em>preventing</em>. It detects
-      modification. It does not stop a sufficiently privileged actor from attempting one -
-      <code class="text-slate-400">praman tamper</code> has to drop the append-only trigger first,
-      and the chain still catches it.
+  </div>
+
+  <div class="card p-5">
+    <div class="flex items-center gap-2.5 mb-3">
+      <span class="w-2 h-2 rounded-sm" style="background: var(--t4)"></span>
+      <h3 class="text-[15px] font-semibold" style="color: var(--text)">Replay</h3>
+    </div>
+    <p class="text-[13px]" style="color: var(--text-2)">
+      Re-POSTs every stored policy input to OPA loaded with that entry's pinned bundle and compares
+      the verdict. Proves the record was
+      <strong style="color: var(--text)">true when it was written</strong> — which a hash chain
+      structurally cannot do, because a writer that bypasses the policy engine and records its own
+      verdict still hashes perfectly.
     </p>
   </div>
 </section>
+
+<section class="card p-5 mt-4 rise" style="animation-delay:.24s">
+  <div class="flex flex-wrap items-center gap-3 mb-3">
+    <h3 class="text-[15px] font-semibold" style="color: var(--text)">Run it yourself</h3>
+    <span class="text-[12px]" style="color: var(--text-3)">replay spawns a policy engine per bundle, so it runs from the terminal</span>
+  </div>
+  <div class="flex items-center gap-2 rounded-lg px-4 py-3"
+       style="background: var(--surface-2); border: 1px solid var(--line)">
+    <span class="mono text-[13px] flex-1" id="cmd" style="color: var(--text)">./scripts/verify.sh</span>
+    <button class="btn" type="button" onclick="copyCmd(this)">copy</button>
+  </div>
+  <p class="text-[12px] mt-4 pt-4" style="color: var(--text-3); border-top: 1px solid var(--line)">
+    Honest limit: this is tamper-<em style="color: var(--text-2)">evident</em>, not
+    tamper-<em style="color: var(--text-2)">preventing</em>. It detects modification; it does not
+    stop a sufficiently privileged actor from attempting one. <code>praman tamper</code> has to drop
+    the append-only trigger first — a visible act — and the chain still catches it.
+  </p>
+</section>
+
+<script>
+  function copyCmd(btn) {
+    const text = document.getElementById('cmd').textContent.trim();
+    navigator.clipboard.writeText(text).then(() => {
+      const was = btn.textContent;
+      btn.textContent = 'copied';
+      setTimeout(() => { btn.textContent = was; }, 1400);
+    }).catch(() => { btn.textContent = 'select it'; });
+  }
+</script>
 {% endblock %}

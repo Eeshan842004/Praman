@@ -259,3 +259,62 @@ def test_the_bayes_ceiling_cannot_be_beaten():
     batch = generate_batch(n=3000, seed=17)
     icr = information_report(batch, bayes_posterior(batch)).icr
     assert 0.97 <= icr <= 1.03, f"Bayes ICR {icr:.4f} is not the ceiling it claims to be"
+
+
+def test_code_17_maps_to_auth_failure_and_matches_live_razorpay():
+    """DE-39 17 is "customer cancellation", filed under AUTH_FAILURE on purpose.
+
+    A cancellation is almost always a customer abandoning the authentication
+    step. Razorpay agrees: the captured fixture pay_TWyYef0D3L7Vpl reports
+    error_reason=payment_cancelled with error_step=payment_authentication.
+
+    Asserted against the LIVE fixture rather than our own reasoning, so the
+    justification in canonical_causes.yaml stays true rather than becoming a
+    comment nobody rechecked.
+    """
+    import json
+    from pathlib import Path
+
+    from praman.ingest.fixtures import error_object
+    from praman.taxonomy.normalise import normalise_razorpay
+
+    tax = load_taxonomy()
+    assert "17" in tax.emissions("card", "AUTH_FAILURE")
+
+    fixture = Path(__file__).resolve().parents[1] / "fixtures" / "razorpay"
+    cancellations = [
+        json.loads(p.read_text(encoding="utf-8"))
+        for p in fixture.glob("pay_*.json")
+        if p.name != "index.json"
+    ]
+    cancellations = [
+        e
+        for e in cancellations
+        if e["payload"]["payment"]["entity"].get("error_reason") == "payment_cancelled"
+    ]
+    if not cancellations:
+        pytest.skip("no captured cancellation fixture")
+
+    for event in cancellations:
+        entity = event["payload"]["payment"]["entity"]
+        assert entity["error_step"] == "payment_authentication", (
+            "the justification for filing 17 under AUTH_FAILURE is that Razorpay "
+            "places a cancellation at the authentication step"
+        )
+        obs = normalise_razorpay(error_object(event), rail="card")
+        assert obs.symbol == "17"
+        assert obs.cause_hint == "AUTH_FAILURE"
+
+
+def test_code_17_has_a_degenerate_posterior_and_that_is_documented():
+    """17 is emitted by exactly one cause, so P(cause|17) = 1.0.
+
+    That is a known simplification, not a discovery -- a cancellation code could
+    also follow a technical timeout at the auth step. The test exists so the
+    degeneracy is a recorded property rather than something a reader stumbles
+    on while looking at a posterior of 1.000 on a dashboard.
+    """
+    tax = load_taxonomy()
+    emitters = [c for c in CAUSES if "17" in tax.emissions("card", c)]
+    assert emitters == ["AUTH_FAILURE"]
+    assert max(tax.posterior(Observation(rail="card", symbol="17")).values()) == 1.0

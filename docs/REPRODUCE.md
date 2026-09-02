@@ -24,7 +24,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh     # or the PowerShell line in 
 |---|---|---|---|
 | Chain intact, 2,988 entries | `./scripts/verify.sh` | `+ 2988 entries . chain intact` | ~15 s |
 | 1,200/1,200 decisions reproduced | `./scripts/verify.sh` | `+ 1200/1200 decisions reproduced against 2 pinned bundle(s)` | ~15 s |
-| Two pinned bundle spans | `./scripts/verify.sh` | `4ca4787c0a1eea75` entries 1–988; `bd45b0c7e5ce66a3` entries 991–2986 | ~15 s |
+| Two pinned bundle spans | `./scripts/verify.sh` | `4ca4787c0a1eea75` decision entries 1–988; `bd45b0c7e5ce66a3` decision entries 991–2986 | ~15 s |
 | 0 policy violations | `./scripts/verify.sh` | `+ 0 policy violations across 588 actuations` | ~15 s |
 | Tamper is detected | `praman tamper --ledger data/ledger.db --entry 447 --set amount_paise=99999900` then `./scripts/verify.sh` | `CHAIN BROKEN at entry 447` → `ATTESTATION FAIL`, exit 1 | ~15 s |
 
@@ -43,8 +43,8 @@ curl -LsSf https://astral.sh/uv/install.sh | sh     # or the PowerShell line in 
 
 | Claim | Command | Expected | Runtime |
 |---|---|---|---|
-| 400 tests pass | `uv run pytest` | `400 passed` | ~4 min |
-| Replay tests actually run (do not skip) | `PRAMAN_REQUIRE_OPA=1 uv run pytest tests/test_replay.py` | 14 passed, 0 skipped | ~40 s |
+| 417 tests pass | `uv run pytest` | `417 passed` | ~4 min |
+| Replay tests actually run (do not skip) | `PRAMAN_REQUIRE_OPA=1 uv run pytest tests/test_replay.py` | 15 passed, 0 skipped | ~40 s |
 | Webhook p99 < 20 ms over a 200-request burst | `uv run pytest tests/test_ingest.py -k p99 -q` | passes; measured p50 0.71 ms / p95 0.92 ms / **p99 1.46 ms** | ~10 s |
 
 ## Tier 4 — measurement, minutes to tens of minutes
@@ -90,8 +90,11 @@ inconsistent:
 
 - **`data/ledger.db` (committed, 2,988 entries, 1,200 decisions)** exists so a
   judge can attest without generating anything. It spans both bundles. Its
-  per-batch effect estimates are *not* the reported figures — the batches are
-  too small to power them, which is the point of the power analysis.
+  per-batch effect estimates are *not* the reported figures: both batches sit
+  **below the minimum detectable effect**, so a null there would be arithmetic
+  rather than evidence. Underpowered means you *may* miss, not that you must —
+  as it happens both intervals exclude zero, which is luck rather than design
+  and is exactly why the headline uses the powered run instead.
 - **The full run (`--mode full`, 22,912 entries, 9,200 decisions)** is what the
   three-tier result was measured on. Regenerate it with the command above if you
   want to re-derive SECONDARY and ILLUSTRATIVE yourself.

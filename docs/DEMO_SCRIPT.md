@@ -19,10 +19,15 @@
 **Say:**
 > "Roughly half of all 'Do Not Honor' declines are insufficient funds in disguise.
 > The issuer knows the balance, the risk score, the velocity. The merchant sees two
-> digits. And here's the part nobody talks about: no recovery vendor on earth —
-> Stripe, Adyen, or Razorpay's own Optimizer — can tell you how much revenue they
-> actually *caused*. They all report gross recovery, which silently includes every
-> customer who would have paid anyway."
+> digits. Most recovery vendors report gross recovery, which silently includes every
+> customer who would have paid anyway.
+>
+> A few do better — Checkout.com runs control groups, Slicker runs fifty-fifty A/B
+> tests with p-values. So the method is validated, not novel, and I'm not going to
+> pretend otherwise. What none of them does is hand the *merchant* the
+> counterfactual. Their control group is internal; you take the number on trust.
+> And a p-value tells you an effect probably isn't zero — it doesn't tell you your
+> confidence interval actually contains the answer. That's the gap I built for."
 
 **On screen:** decline code `05`, then a fan-out to the five causes it could mean.
 
@@ -207,8 +212,8 @@ ILLUSTRATIVE . the underpowered batch (n=3,000), kept on purpose
 $ ./scripts/verify.sh                       # one command, fresh clone, no setup
 + 2988 entries . chain intact (2988 entries, head a2ff7d7d...)
 + 1200/1200 decisions reproduced against 2 pinned bundle(s)
-    bundle 4ca4787c0a1eea75 : entries 1-988     (400 decisions)
-    bundle bd45b0c7e5ce66a3 : entries 991-2986  (800 decisions)
+    bundle 4ca4787c0a1eea75 : decision entries 1-988     (400 decisions)
+    bundle bd45b0c7e5ce66a3 : decision entries 991-2986  (800 decisions)
 + 0 policy violations across 588 actuations
 ATTESTATION PASS
 

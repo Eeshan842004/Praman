@@ -1,145 +1,220 @@
 {% extends "base.html" %}
-{% block title %}Praman - batch{% endblock %}
+{% block title %}Praman — batch{% endblock %}
 {% block content %}
 
-<div class="grid grid-cols-2 md:grid-cols-4 gap-px bg-slate-800 border border-slate-800 rounded mb-8">
-  <div class="bg-slate-900 p-4">
-    <div class="text-2xl font-semibold text-white num">{{ "{:,}".format(total) }}</div>
-    <div class="text-xs text-slate-500 uppercase tracking-wide mt-1">decisions</div>
+{# ── The one number. Mercury/Ramp restraint: a dashboard earns trust by
+     leading with the single figure that matters, not a wall of data. Here
+     that figure is zero, and it is the entire compliance story. ────────── #}
+<section class="rise mb-12">
+  <div class="eyebrow mb-3">Compliance</div>
+  <div class="flex flex-wrap items-end gap-x-6 gap-y-3">
+    <div class="num font-semibold leading-none tracking-tight"
+         style="font-size: clamp(56px, 11vw, 92px); color: {% if violations == 0 %}var(--ok){% else %}var(--bad){% endif %}">
+      {{ violations }}
+    </div>
+    <div class="pb-2">
+      <div class="text-[19px] font-medium" style="color: var(--text)">policy violations</div>
+      <div class="text-[13.5px]" style="color: var(--text-2)">
+        across <span class="num">{{ "{:,}".format(actuations) }}</span> actuations that moved money
+      </div>
+    </div>
+    <div class="pb-3 ml-auto">
+      <span class="pill {% if violations == 0 %}pill-ok{% else %}pill-bad{% endif %}">
+        <span class="dot"></span>{% if violations == 0 %}kernel holding{% else %}breach{% endif %}
+      </span>
+    </div>
   </div>
-  <div class="bg-slate-900 p-4">
-    <div class="text-2xl font-semibold text-white num">{{ "{:,}".format(actuations) }}</div>
-    <div class="text-xs text-slate-500 uppercase tracking-wide mt-1">actuations</div>
-  </div>
-  <div class="bg-slate-900 p-4">
-    <div class="text-2xl font-semibold text-white num">{{ "{:,}".format(entries) }}</div>
-    <div class="text-xs text-slate-500 uppercase tracking-wide mt-1">ledger entries</div>
-  </div>
-  <div class="bg-slate-900 p-4">
-    <div class="text-2xl font-semibold num {% if violations == 0 %}text-emerald-400{% else %}text-red-400{% endif %}">{{ violations }}</div>
-    <div class="text-xs text-slate-500 uppercase tracking-wide mt-1">policy violations</div>
-  </div>
-</div>
+  <p class="mt-4 text-[13px] max-w-2xl" style="color: var(--text-3)">
+    A violation is an actuation that executed without an authorising <code>allow</code>.
+    A refusal is not a violation — refusing is the kernel working.
+  </p>
+</section>
 
-<section class="mb-10">
-  <h2 class="text-sm uppercase tracking-wider text-slate-400 mb-3">Escalation ladder</h2>
-  <div class="flex h-8 rounded overflow-hidden border border-slate-800">
+{# ── supporting counts, deliberately smaller than the hero ───────────── #}
+<section class="rise grid grid-cols-2 md:grid-cols-4 gap-3 mb-12" style="animation-delay:.06s">
+  {% for m in [
+      ('decisions', "{:,}".format(total)),
+      ('actuations', "{:,}".format(actuations)),
+      ('ledger entries', "{:,}".format(entries)),
+      ('bundles pinned', bundles)] %}
+  <div class="card px-4 py-3.5">
+    <div class="num text-[22px] font-semibold" style="color: var(--text)">{{ m[1] }}</div>
+    <div class="label mt-1">{{ m[0] }}</div>
+  </div>
+  {% endfor %}
+</section>
+
+{# ── escalation ladder ───────────────────────────────────────────────── #}
+<section class="mb-12 rise" style="animation-delay:.12s">
+  <div class="flex items-baseline justify-between mb-4">
+    <div>
+      <h2 class="text-[17px] font-semibold" style="color: var(--text)">Escalation ladder</h2>
+      <p class="text-[13px] mt-0.5" style="color: var(--text-3)">
+        Where every decision landed. Each tier keeps its colour on every page.
+      </p>
+    </div>
+  </div>
+
+  <div class="flex h-11 rounded-lg overflow-hidden mb-5" style="border: 1px solid var(--line)">
     {% for t in tiers %}{% if t.count %}
-    <div class="flex items-center justify-center text-[11px] text-slate-950 font-semibold {{ t.colour }}"
-         style="width: {{ "%.4f"|format(t.pct) }}%" title="{{ t.tier }} {{ t.action }} - {{ t.count }}">
-      {% if t.pct > 7 %}{{ t.tier }}{% endif %}
+    <div class="bar grid place-items-center text-[11px] font-semibold"
+         style="--w: {{ "%.4f"|format(t.pct) }}%; background: {{ t.colour }}; color: #0A0E14;
+                animation-delay: {{ "%.2f"|format(0.12 + loop.index0 * 0.07) }}s"
+         title="{{ t.tier }} {{ t.action }} — {{ t.count }} ({{ "%.1f"|format(t.pct) }}%)">
+      {% if t.pct > 6 %}{{ t.tier }}{% endif %}
     </div>
     {% endif %}{% endfor %}
   </div>
-  <table class="w-full mt-4 text-sm">
-    <tbody>
-    {% for t in tiers %}
-      <tr class="border-b border-slate-900">
-        <td class="py-1.5 w-12 text-slate-400">{{ t.tier }}</td>
-        <td class="py-1.5 text-slate-300">{{ t.action }}</td>
-        <td class="py-1.5 text-right num text-white w-24">{{ "{:,}".format(t.count) }}</td>
-        <td class="py-1.5 text-right num text-slate-500 w-20">{{ "%.1f"|format(t.pct) }}%</td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-</section>
 
-<section class="mb-10">
-  <h2 class="text-sm uppercase tracking-wider text-slate-400 mb-1">The result, in three tiers</h2>
-  <p class="text-xs text-slate-500 mb-4">Hardest claim first. Every number an incumbent reports lives in the third tier, without an interval.</p>
-
-  <div class="border border-slate-800 rounded mb-4 p-4">
-    <div class="text-xs uppercase tracking-wider text-emerald-400 mb-2">Primary - the estimator, not the outcome</div>
-    {% if primary %}
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-      <div>
-        <div class="num text-white text-lg">{{ "%+.1f"|format(primary.mean_bias_pct) }}%</div>
-        <div class="text-xs text-slate-500">bias vs sealed truth</div>
-      </div>
-      <div>
-        <div class="num text-white text-lg">{{ "%.1f"|format(primary.coverage * 100) }}%</div>
-        <div class="text-xs text-slate-500">95% CI coverage</div>
-      </div>
-      <div>
-        <div class="num text-amber-400 text-lg">{{ "%+.1f"|format(primary.naive_mean_bias_pct) }}%</div>
-        <div class="text-xs text-slate-500">naive gross bias</div>
-      </div>
-      <div>
-        <div class="num text-amber-400 text-lg">{{ "%.1f"|format(primary.naive_coverage * 100) }}%</div>
-        <div class="text-xs text-slate-500">naive coverage</div>
-      </div>
-    </div>
-    <p class="text-xs text-slate-600 mt-3">
-      {{ primary.n_worlds }} worlds from the payments simulator, sealed true effect.
-      Coverage fails if the interval is too narrow OR too wide, which is what makes it a hard test.
-    </p>
-    {% else %}
-    <p class="text-sm text-slate-500">Not measured yet. Run
-      <code class="text-slate-400">praman validate-estimator --save docs/estimator_validation.json</code>.</p>
-    {% endif %}
-  </div>
-
-  <div class="border border-slate-800 rounded p-4">
-    <div class="text-xs uppercase tracking-wider text-sky-400 mb-1">Per batch - incremental recovery, from this ledger</div>
-    <p class="text-xs text-slate-500 mb-3">
-      This is the trimmed <strong class="text-slate-400">demo ledger</strong> committed to the repo -
-      1,200 decisions across two policy bundles, sized so a judge can clone and attest in about
-      fifteen seconds. These batches are deliberately too small to power, which is the point the
-      power analysis makes. The headline <strong class="text-slate-400">secondary result
-      (n=5,000, Rs 39.03, CI [20.00, 56.71])</strong> comes from the full run - regenerate it with
-      the command in <code class="text-slate-400">docs/REPRODUCE.md</code>.
-    </p>
-    <div class="overflow-x-auto">
-    <table class="w-full text-sm">
-      <thead><tr class="text-xs uppercase tracking-wider text-slate-500 border-b border-slate-800">
-        <th class="text-left pb-2">experiment</th>
-        <th class="text-right pb-2">per decline</th>
-        <th class="text-right pb-2">95% CI</th>
-        <th class="text-right pb-2">naive gross</th>
-        <th class="text-right pb-2">excl. zero</th>
-      </tr></thead>
+  <div class="card overflow-x-auto">
+    <table>
       <tbody>
-      {% for e in experiments %}
-        <tr class="border-b border-slate-900">
-          <td class="py-1.5 text-slate-300">{{ e.name }}</td>
-          {% if e.unavailable %}
-          <td colspan="4" class="py-1.5 text-right text-slate-600">too few clusters to estimate</td>
-          {% else %}
-          <td class="py-1.5 text-right num text-white">Rs {{ "%.2f"|format(e.tau) }}</td>
-          <td class="py-1.5 text-right num text-slate-400">[{{ "%.2f"|format(e.lo) }}, {{ "%.2f"|format(e.hi) }}]</td>
-          <td class="py-1.5 text-right num text-amber-400">Rs {{ "%.2f"|format(e.naive) }}</td>
-          <td class="py-1.5 text-right {% if e.excludes_zero %}text-emerald-400{% else %}text-slate-500{% endif %}">{{ "yes" if e.excludes_zero else "no" }}</td>
-          {% endif %}
+      {% for t in tiers %}
+        <tr>
+          <td class="pl-4" style="width: 1%">
+            <span class="inline-block w-2.5 h-2.5 rounded-sm align-middle"
+                  style="background: {{ t.colour }}"></span>
+          </td>
+          <td class="mono" style="color: var(--text-2); width: 1%">{{ t.tier }}</td>
+          <td style="color: var(--text)">{{ t.action }}</td>
+          <td class="tnum" style="color: var(--text)">{{ "{:,}".format(t.count) }}</td>
+          <td class="tnum" style="color: var(--text-3); width: 90px">{{ "%.1f"|format(t.pct) }}%</td>
         </tr>
       {% endfor %}
       </tbody>
     </table>
-    </div>
-    <p class="text-xs text-slate-600 mt-3">Naive gross recovery has no counterfactual and ships no interval. It is shown so it can be argued with.</p>
   </div>
 </section>
 
-<section>
-  <h2 class="text-sm uppercase tracking-wider text-slate-400 mb-3">Recent decisions</h2>
-  <div class="overflow-x-auto">
-  <table class="w-full text-sm">
-    <thead><tr class="text-xs uppercase tracking-wider text-slate-500 border-b border-slate-800">
-      <th class="text-left pb-2">entry</th><th class="text-left pb-2">payment</th>
-      <th class="text-left pb-2">cause</th><th class="text-left pb-2">tier</th><th></th>
-    </tr></thead>
-    <tbody>
-    {% for d in recent %}
-      <tr class="border-b border-slate-900 hover:bg-slate-900">
-        <td class="py-1.5 num text-slate-500">{{ d.seq }}</td>
-        <td class="py-1.5 text-slate-300">{{ d.payment_id }}</td>
-        <td class="py-1.5 text-slate-400">{{ d.cause }}</td>
-        <td class="py-1.5 text-slate-300">{{ d.tier }}</td>
-        <td class="py-1.5 text-right"><a class="text-sky-400 hover:text-sky-300" href="/decision/{{ d.seq }}">open</a></td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
+{# ── the three tiers ─────────────────────────────────────────────────── #}
+<section class="mb-12 rise" style="animation-delay:.18s">
+  <h2 class="text-[17px] font-semibold" style="color: var(--text)">The result, in three tiers</h2>
+  <p class="text-[13px] mt-0.5 mb-5 max-w-2xl" style="color: var(--text-3)">
+    Hardest claim first. Every number an incumbent reports lives in the third tier — without an interval.
+  </p>
+
+  <div class="card p-5 mb-3">
+    <div class="flex items-center gap-3 mb-4">
+      <span class="pill pill-ok">Primary</span>
+      <span class="text-[13.5px]" style="color: var(--text-2)">the estimator, not the outcome</span>
+    </div>
+    {% if primary %}
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-5">
+      <div>
+        <div class="num text-[26px] font-semibold" style="color: var(--text)">{{ "%+.1f"|format(primary.mean_bias_pct) }}%</div>
+        <div class="label mt-1">bias vs sealed truth</div>
+      </div>
+      <div>
+        <div class="num text-[26px] font-semibold" style="color: var(--ok)">{{ "%.1f"|format(primary.coverage * 100) }}%</div>
+        <div class="label mt-1">95% CI coverage</div>
+      </div>
+      <div>
+        <div class="num text-[26px] font-semibold" style="color: var(--warn)">{{ "%+.1f"|format(primary.naive_mean_bias_pct) }}%</div>
+        <div class="label mt-1">naive gross bias</div>
+      </div>
+      <div>
+        <div class="num text-[26px] font-semibold" style="color: var(--warn)">{{ "%.1f"|format(primary.naive_coverage * 100) }}%</div>
+        <div class="label mt-1">naive coverage</div>
+      </div>
+    </div>
+    <p class="text-[12.5px] mt-4 pt-4 max-w-3xl" style="color: var(--text-3); border-top: 1px solid var(--line)">
+      {{ primary.n_worlds }} worlds from the payments simulator, each with a sealed true effect the
+      pipeline cannot read. Coverage fails if the interval is too narrow <em>or</em> too wide, which
+      is what makes it a hard test to pass.
+    </p>
+    {% else %}
+    <p class="text-[13.5px]" style="color: var(--text-2)">
+      Not measured yet — run <code>praman validate-estimator --save docs/estimator_validation.json</code>.
+    </p>
+    {% endif %}
+  </div>
+
+  <div class="card p-5">
+    <div class="flex items-center gap-3 mb-2">
+      <span class="pill pill-mute">Per batch</span>
+      <span class="text-[13.5px]" style="color: var(--text-2)">incremental recovery, from this ledger</span>
+    </div>
+    <p class="text-[12.5px] mb-4 max-w-3xl" style="color: var(--text-3)">
+      This is the trimmed <strong style="color: var(--text-2)">demo ledger</strong> committed to the
+      repo — 1,200 decisions across two policy bundles, sized so a judge can clone and attest in about
+      fifteen seconds. Both batches sit
+      <strong style="color: var(--text-2)">below the minimum detectable effect</strong>, so a null
+      here would be arithmetic rather than evidence. Underpowered means you <em>may</em> miss, not
+      that you must — these two happened to detect anyway, and that is luck rather than design.
+      The headline
+      <strong style="color: var(--text-2)">secondary result (n=5,000, Rs 39.03, CI [20.00, 56.71])</strong>
+      comes from the full run at the batch size the power curve chose — regenerate it with the
+      command in <code>docs/REPRODUCE.md</code>.
+    </p>
+    <div class="overflow-x-auto">
+      <table>
+        <thead><tr>
+          <th class="pl-4">experiment</th>
+          <th class="tnum">per decline</th>
+          <th class="tnum">95% CI</th>
+          <th class="tnum">naive gross</th>
+          <th class="tnum">excl. zero</th>
+        </tr></thead>
+        <tbody>
+        {% for e in experiments %}
+          <tr>
+            <td class="pl-4 mono text-[12.5px]" style="color: var(--text-2)">{{ e.name }}</td>
+            {% if e.unavailable %}
+            <td colspan="4" class="tnum" style="color: var(--text-3)">too few clusters to estimate</td>
+            {% else %}
+            <td class="tnum" style="color: var(--text)">Rs {{ "%.2f"|format(e.tau) }}</td>
+            <td class="tnum text-[12.5px]" style="color: var(--text-2)">[{{ "%.2f"|format(e.lo) }}, {{ "%.2f"|format(e.hi) }}]</td>
+            <td class="tnum" style="color: var(--warn)">Rs {{ "%.2f"|format(e.naive) }}</td>
+            <td class="tnum">
+              <span class="pill {% if e.excludes_zero %}pill-ok{% else %}pill-mute{% endif %}">{{ "yes" if e.excludes_zero else "no" }}</span>
+            </td>
+            {% endif %}
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="text-[12.5px] mt-4 pt-4" style="color: var(--text-3); border-top: 1px solid var(--line)">
+      Naive gross recovery has no counterfactual and ships no interval. It is shown here so it can be
+      argued with.
+    </p>
+  </div>
+</section>
+
+{# ── recent decisions ────────────────────────────────────────────────── #}
+<section class="rise" style="animation-delay:.24s">
+  <h2 class="text-[17px] font-semibold mb-4" style="color: var(--text)">Recent decisions</h2>
+  <div class="card overflow-x-auto">
+    <table>
+      <thead><tr>
+        <th class="pl-4">entry</th>
+        <th>payment</th>
+        <th>cause</th>
+        <th>tier</th>
+        <th></th>
+      </tr></thead>
+      <tbody>
+      {% for d in recent %}
+        <tr class="row-link">
+          <td class="pl-4 mono" style="color: var(--text-3); width: 1%">{{ d.seq }}</td>
+          <td class="mono text-[12.5px]" style="color: var(--text-2)">{{ d.payment_id }}</td>
+          <td class="text-[12.5px]" style="color: var(--text-2)">{{ d.cause }}</td>
+          <td style="width: 1%">
+            <span class="mono text-[12px] px-2 py-0.5 rounded"
+                  style="color: var(--{{ d.tier|lower }}); background: var(--surface-2); border: 1px solid var(--line-2)">{{ d.tier }}</span>
+          </td>
+          <td class="tnum" style="width: 1%">
+            <a class="btn" href="/decision/{{ d.seq }}">
+              inspect
+              <svg width="11" height="11" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                <path d="M3 1.5L7.5 6L3 10.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </a>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
   </div>
 </section>
 {% endblock %}

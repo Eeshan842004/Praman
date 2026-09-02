@@ -1,96 +1,169 @@
 {% extends "base.html" %}
-{% block title %}Praman - decision {{ s.ledger_seq }}{% endblock %}
+{% block title %}Praman — decision {{ s.ledger_seq }}{% endblock %}
 {% block content %}
 
-<div class="flex flex-wrap items-baseline gap-4 mb-6">
-  <h1 class="text-2xl font-semibold text-white">{{ s.payment_id }}</h1>
-  <span class="text-slate-500">Rs {{ "%.2f"|format(s.amount_paise / 100) }}</span>
-  <span class="text-slate-500">{{ s.rail }}</span>
-  <span class="px-2 py-0.5 rounded text-xs {% if s.tier == 'T0' %}bg-slate-700 text-slate-200{% elif s.tier == 'T4' %}bg-emerald-900 text-emerald-300{% else %}bg-sky-900 text-sky-300{% endif %}">
-    {{ s.tier }} {{ tier_action.get(s.tier, s.tier) }}
-  </span>
-  <span class="ml-auto text-xs text-slate-600">ledger entry {{ s.ledger_seq }} - written before actuation</span>
-</div>
+<a href="/" class="btn btn-ghost mb-6">
+  <svg width="11" height="11" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+    <path d="M9 1.5L4.5 6L9 10.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>
+  All decisions
+</a>
 
-<div class="grid md:grid-cols-2 gap-6">
-
-  <section class="border border-slate-800 rounded p-4">
-    <h2 class="text-sm uppercase tracking-wider text-slate-400 mb-1">Posterior over all nine causes</h2>
-    <p class="text-xs text-slate-600 mb-4">
-      Observed code <span class="text-slate-300">{{ symbol }}</span>. The normaliser does not map it to
-      one cause - the ambiguity is the product, so the whole vector is recorded and shown.
-    </p>
-    {% for row in posterior %}
-    <div class="mb-1.5">
-      <div class="flex justify-between text-xs mb-0.5">
-        <span class="{% if row.cause == s.cause %}text-white{% else %}text-slate-500{% endif %}">{{ row.cause }}</span>
-        <span class="num {% if row.cause == s.cause %}text-white{% else %}text-slate-600{% endif %}">{{ "%.3f"|format(row.p) }}</span>
+{# ── one payment, stated once ─────────────────────────────────────────── #}
+<section class="rise mb-9">
+  <div class="eyebrow mb-3">Ledger entry {{ s.ledger_seq }} — written before anything was actuated</div>
+  <div class="flex flex-wrap items-end gap-x-7 gap-y-3">
+    <div>
+      <div class="num font-semibold leading-none tracking-tight"
+           style="font-size: clamp(38px, 7vw, 56px); color: var(--text)">
+        Rs {{ "{:,.2f}".format(s.amount_paise / 100) }}
       </div>
-      <div class="h-1.5 bg-slate-900 rounded overflow-hidden">
-        <div class="h-full {% if row.cause == s.cause %}bg-sky-400{% else %}bg-slate-700{% endif %}"
-             style="width: {{ "%.2f"|format(row.p * 100) }}%"></div>
+      <div class="mono text-[13px] mt-2" style="color: var(--text-3)">{{ s.payment_id }}</div>
+    </div>
+    <div class="pb-2 flex flex-wrap items-center gap-2">
+      <span class="pill pill-mute">{{ s.rail }}</span>
+      <span class="pill" style="color: {{ {'T0':'var(--t0)','T1':'var(--t1)','T2':'var(--t2)','T3':'var(--t3)','T4':'var(--t4)'}[s.tier] }};
+                                 background: var(--surface-2); border-color: var(--line-2)">
+        <span class="dot"></span>{{ s.tier }} {{ tier_action.get(s.tier, s.tier) }}
+      </span>
+      <span class="pill {% if opa_allow %}pill-ok{% else %}pill-warn{% endif %}">
+        policy {{ "allowed" if opa_allow else "denied" }}
+      </span>
+      <span class="pill pill-mute">{{ arm }}</span>
+    </div>
+  </div>
+</section>
+
+<div class="grid lg:grid-cols-2 gap-4 mb-4">
+
+  {# ── the posterior, in full ─────────────────────────────────────────── #}
+  <section class="card p-5 rise" style="animation-delay:.06s">
+    <h2 class="text-[15px] font-semibold" style="color: var(--text)">Posterior over all nine causes</h2>
+    <p class="text-[12.5px] mt-1 mb-5" style="color: var(--text-3)">
+      Observed code <code>{{ symbol }}</code>.
+      {% if is_sharp %}
+      This code is <strong style="color: var(--text-2)">unambiguous</strong>, so the posterior is
+      correctly sharp — the taxonomy is built to be decisive where the rail says something definite
+      and wide where it does not. Both halves are the claim; the whole vector is recorded either way.
+      {% else %}
+      The normaliser does not resolve it to one cause — the
+      <strong style="color: var(--text-2)">ambiguity is the product</strong>, so the whole vector is
+      recorded and shown rather than collapsed to a guess.
+      {% endif %}
+    </p>
+
+    {% for row in posterior %}
+    <div class="mb-2.5">
+      <div class="flex justify-between items-baseline mb-1">
+        <span class="text-[12px] {% if row.cause == s.cause %}font-semibold{% endif %}"
+              style="color: {% if row.cause == s.cause %}var(--text){% else %}var(--text-3){% endif %}">{{ row.cause }}</span>
+        <span class="num text-[12px]"
+              style="color: {% if row.cause == s.cause %}var(--text){% else %}var(--text-3){% endif %}">{{ "%.3f"|format(row.p) }}</span>
+      </div>
+      <div class="h-1.5 rounded-full overflow-hidden" style="background: var(--surface-2)">
+        <div class="bar h-full rounded-full"
+             style="--w: {{ "%.2f"|format(row.p * 100) }}%;
+                    background: {% if row.cause == s.cause %}var(--t1){% else %}var(--line-2){% endif %};
+                    animation-delay: {{ "%.2f"|format(0.1 + loop.index0 * 0.04) }}s"></div>
       </div>
     </div>
     {% endfor %}
-    <p class="text-xs text-slate-600 mt-4">
-      Confidence {{ "%.2f"|format(s.confidence) }}.
-      The Rego kernel tests this against a floor of 0.40 - below it, only human escalation is legal.
+
+    <div class="mt-5 pt-4 flex items-center justify-between" style="border-top: 1px solid var(--line)">
+      <span class="label">confidence</span>
+      <span class="num text-[13px]" style="color: var(--text)">{{ "%.2f"|format(s.confidence) }}</span>
+    </div>
+    <p class="text-[12px] mt-2" style="color: var(--text-3)">
+      The kernel tests this against a floor of <span class="num">0.40</span>. Below it, only human
+      escalation is legal — the one defence policy has against a confidently wrong cause.
     </p>
   </section>
 
-  <section class="border border-slate-800 rounded p-4">
-    <h2 class="text-sm uppercase tracking-wider text-slate-400 mb-1">What every tier was told</h2>
-    <p class="text-xs text-slate-600 mb-4">
+  {# ── the conflict matrix ────────────────────────────────────────────── #}
+  <section class="card p-5 rise" style="animation-delay:.12s">
+    <h2 class="text-[15px] font-semibold" style="color: var(--text)">What every tier was told</h2>
+    <p class="text-[12.5px] mt-1 mb-5" style="color: var(--text-3)">
       Not just the tier we took. Every tier is evaluated and never short-circuited, because the
       complete deny-set is the only thing that makes a regulatory deadlock legible.
     </p>
-    {% for tier in tiers %}
-    {% set reasons = s.tier_evaluations.get(tier, []) %}
-    <div class="mb-3">
-      <div class="flex items-center gap-2">
-        <span class="text-sm text-slate-300 w-8">{{ tier }}</span>
-        <span class="text-xs text-slate-500 w-32">{{ tier_action.get(tier, tier) }}</span>
-        {% if reasons %}
-        <span class="text-xs px-1.5 py-0.5 rounded bg-red-950 text-red-400">DENY</span>
+
+    {% for row in tier_states %}
+    <div class="mb-3 pb-3 {% if not loop.last %}border-b{% endif %}" style="border-color: var(--line)">
+      <div class="flex items-center gap-3 flex-wrap">
+        <span class="mono text-[12.5px] w-6"
+              style="color: {{ {'T1':'var(--t1)','T2':'var(--t2)','T3':'var(--t3)','T4':'var(--t4)'}[row.tier] }}">{{ row.tier }}</span>
+        <span class="text-[12.5px] flex-1" style="color: var(--text-2)">{{ tier_action.get(row.tier, row.tier) }}</span>
+        {% if row.state == 'taken' %}
+          <span class="pill pill-ok"><span class="dot"></span>taken</span>
+        {% elif row.state == 'deny' %}
+          <span class="pill pill-bad">deny</span>
+        {% elif row.state == 'fallback' %}
+          <span class="pill pill-ok">allow</span>
+        {% elif row.state == 'not-preferred' %}
+          <span class="pill pill-mute">allowed &middot; not preferred</span>
         {% else %}
-        <span class="text-xs px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-400">ALLOW</span>
+          <span class="pill" style="color: var(--text-3); background: transparent; border-color: var(--line-2); border-style: dashed">not proposed</span>
         {% endif %}
       </div>
-      {% for reason in reasons|sort %}
-      <div class="ml-10 mt-1 text-xs text-slate-500">{{ reason }}</div>
-      {% endfor %}
+      {% if row.reasons %}
+      <div class="mt-2 ml-9 flex flex-wrap gap-1.5">
+        {% for reason in row.reasons %}
+        <span class="mono text-[11px] px-2 py-1 rounded"
+              style="color: var(--bad); background: rgba(248,113,113,.07); border: 1px solid rgba(248,113,113,.2)">{{ reason }}</span>
+        {% endfor %}
+      </div>
+      {% elif row.note %}
+      <div class="mt-1.5 ml-9 text-[11.5px]" style="color: var(--text-3)">{{ row.note }}</div>
+      {% endif %}
     </div>
     {% endfor %}
-    <div class="mt-4 pt-3 border-t border-slate-800 text-xs text-slate-600 space-y-1">
-      <div>bundle revision <span class="text-slate-400">{{ s.bundle_revision or "unknown" }}</span></div>
-      {% if decision_id %}<div>opa decision id <span class="text-slate-400">{{ decision_id }}</span></div>{% endif %}
-      <div>arm <span class="text-slate-400">{{ arm }}</span> - policy allowed: <span class="text-slate-400">{{ "yes" if opa_allow else "no" }}</span></div>
-    </div>
+
+    <p class="text-[11.5px] mt-1 mb-4" style="color: var(--text-3)">
+      Policy permission and ladder eligibility are different things.
+      <span style="color: var(--text-2)">Not proposed</span> means the ladder never asked, because
+      the cause is not retryable — not that the action was illegal.
+      <span style="color: var(--text-2)">Not preferred</span> means it was legal and a higher-ranked
+      tier for this cause also allowed.
+    </p>
+
+    <dl class="text-[12px] space-y-1.5 mt-4">
+      <div class="flex justify-between gap-4">
+        <dt style="color: var(--text-3)">bundle revision</dt>
+        <dd class="mono truncate" style="color: var(--text-2)">{{ s.bundle_revision or "unknown" }}</dd>
+      </div>
+      {% if decision_id %}
+      <div class="flex justify-between gap-4">
+        <dt style="color: var(--text-3)">opa decision id</dt>
+        <dd class="mono truncate" style="color: var(--text-2)">{{ decision_id }}</dd>
+      </div>
+      {% endif %}
+    </dl>
   </section>
 </div>
 
-<section class="border border-slate-800 rounded p-4 mt-6">
-  <div class="flex items-baseline gap-3 mb-3">
-    <h2 class="text-sm uppercase tracking-wider text-slate-400">Explanation</h2>
-    <span class="text-xs px-1.5 py-0.5 rounded
-      {% if explanation.source == 'template' %}bg-slate-800 text-slate-400{% else %}bg-violet-950 text-violet-300{% endif %}">
-      {{ explanation.source }}
-    </span>
-    <span class="text-xs text-slate-600">
+{# ── explanation ─────────────────────────────────────────────────────── #}
+<section class="card p-5 rise" style="animation-delay:.18s">
+  <div class="flex flex-wrap items-center gap-3 mb-3">
+    <h2 class="text-[15px] font-semibold" style="color: var(--text)">Explanation</h2>
+    <span class="pill {% if explanation.source == 'template' %}pill-mute{% else %}pill-ok{% endif %}">{{ explanation.source }}</span>
+    <span class="text-[12px]" style="color: var(--text-3)">
       {% if explanation.source == 'template' %}
-        deterministic - renders with no network and no API key
+        deterministic — renders with no network and no API key
       {% else %}
         model-written, validated in Python, cached per archetype
       {% endif %}
     </span>
   </div>
-  <pre class="text-sm text-slate-300 whitespace-pre-wrap leading-relaxed">{{ explanation.text }}</pre>
-  <p class="text-xs text-slate-600 mt-4">
-    The model never authorises anything. This describes a decision that was already made, recorded
-    and attested; prose naming a cause or tier other than the recorded one is rejected and the
-    deterministic template renders instead.
+
+  <div class="rounded-lg p-4" style="background: var(--surface-2); border: 1px solid var(--line)">
+    <pre class="text-[13.5px] whitespace-pre-wrap leading-relaxed"
+         style="color: var(--text); font-family: Archivo, sans-serif">{{ explanation.text }}</pre>
+  </div>
+
+  <p class="text-[12px] mt-4" style="color: var(--text-3)">
+    The model never authorises anything, and it never writes a number — the template owns every
+    figure on this page. Prose naming a cause or tier other than the recorded one, or containing any
+    digit, is rejected and the deterministic template renders instead.
   </p>
 </section>
-
-<p class="mt-6 text-sm"><a href="/" class="text-sky-400 hover:text-sky-300">&larr; back to the batch</a></p>
 {% endblock %}

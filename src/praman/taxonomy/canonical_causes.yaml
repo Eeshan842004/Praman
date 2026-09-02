@@ -47,7 +47,8 @@ causes:
     class: soft
     retryable: true
     default_tier: T3
-    description: Authentication did not complete — OTP, 3DS, PIN, or MPIN.
+    description: Authentication did not complete — OTP, 3DS, PIN, MPIN, or the
+      customer abandoning the challenge.
   TECHNICAL_DECLINE:
     class: soft
     retryable: true
@@ -141,7 +142,28 @@ emissions:
       "82": 0.22   # CVV/CAM failure
       "1A": 0.22   # strong customer authentication required
       "63": 0.09
-      "17": 0.10   # customer cancellation
+      # DE-39 17 is "customer cancellation", and filing it under AUTH_FAILURE
+      # rather than a cause of its own is deliberate. A cancellation is almost
+      # always a customer abandoning the authentication step -- closing the OTP
+      # page, dismissing the 3DS challenge, letting the collect request expire.
+      # It is an authentication that did not complete, which is exactly what
+      # this cause means.
+      #
+      # Confirmed against live traffic, not assumed: the captured Razorpay
+      # fixture pay_TWyYef0D3L7Vpl carries
+      #     error_reason = payment_cancelled
+      #     error_source = customer
+      #     error_step   = payment_authentication
+      # Razorpay's own pipeline places the cancellation at the authentication
+      # step. tests/test_taxonomy.py asserts the mapping so it cannot drift.
+      #
+      # KNOWN SIMPLIFICATION: 17 is emitted by this cause and no other, so
+      # P(cause | 17) is exactly 1.0 -- a degenerate posterior. In reality a
+      # cancellation code could also follow a technical timeout at the auth
+      # step. Adding that mass would be more faithful and would change every
+      # downstream measurement, so it is recorded in LIMITATIONS rather than
+      # changed after the kernel froze.
+      "17": 0.10
     TECHNICAL_DECLINE:
       "05": 0.08
       "91": 0.40   # issuer or switch inoperative

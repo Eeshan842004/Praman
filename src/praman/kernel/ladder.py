@@ -176,13 +176,24 @@ def build_policy_input(ctx: DeclineContext, tier: str) -> dict[str, Any]:
     }
 
 
-def _candidates(ctx: DeclineContext) -> tuple[str, ...]:
-    """Tiers worth proposing for this cause, in preference order.
+def proposed_tiers_for(cause: str) -> tuple[str, ...]:
+    """Tiers the ladder will even ASK about for this cause, in preference order.
+
+    Ladder eligibility and policy permission are different things, and
+    conflating them misreads the audit trail. Policy may perfectly well allow
+    T1 for a decline the ladder never proposed -- an authentication failure is
+    not retryable, so a silent retry is pointless rather than illegal, and the
+    ladder skips it. A reader seeing "T1 ALLOW" beside a T3 outcome would
+    otherwise conclude we ignored a permitted action.
 
     Non-retryable causes never propose T1/T2. An expired card cannot be retried,
     but a nudge is both legal and the correct fix, so it goes straight to T3.
+    A hard decline proposes nothing at all.
+
+    Public because the dashboard renders this distinction and must derive it
+    from the same function the kernel uses, not a copy of the rule.
     """
-    meta = load_taxonomy().cause_meta(ctx.cause)
+    meta = load_taxonomy().cause_meta(cause)
     if meta.cause_class == "hard":
         return ()
 
@@ -190,6 +201,10 @@ def _candidates(ctx: DeclineContext) -> tuple[str, ...]:
     if not meta.retryable:
         order = [t for t in order if t not in ("T1", "T2")]
     return tuple(t for t in order if t in ACTIONABLE_TIERS)
+
+
+def _candidates(ctx: DeclineContext) -> tuple[str, ...]:
+    return proposed_tiers_for(ctx.cause)
 
 
 def evaluate_ladder(ctx: DeclineContext, client: PolicyClient) -> LadderOutcome:
@@ -251,4 +266,5 @@ __all__ = [
     "TierEvaluation",
     "build_policy_input",
     "evaluate_ladder",
+    "proposed_tiers_for",
 ]
