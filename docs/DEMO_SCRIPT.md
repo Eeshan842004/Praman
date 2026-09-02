@@ -61,7 +61,7 @@ incremental per decline          Rs 44.93     Rs 47.89     +Rs 2.96
 information capture (ICR)        0.9608       0.9029       -0.0579
 
 held-out macro AUC ......  0.9566   (gate 0.70: PASS)
-features-blind ceiling ..  0.9667   heuristic reaches 99.4% of it
+features-blind ceiling ..  0.9667   heuristic reaches 99.4% of it   (this batch)
 recovery delta (paired) .  Rs 2.96   95% CI [Rs -0.19, Rs 6.56]   -> straddles zero
 VERDICT: ship the HEURISTIC.
 ```
@@ -81,10 +81,11 @@ VERDICT: ship the HEURISTIC.
 > estimate would be the exact move I'm criticising everyone else for.
 >
 > And before you ask whether I stacked the comparison: I audited the ceiling. The
-> denominator already conditions on everything the model can see. Features carry
-> three point nine percent of the total available information — that was the whole
-> prize — and the heuristic, which is the *exact* Bayes posterior for its inputs,
-> already reaches ninety-nine point four percent of its own theoretical maximum.
+> denominator already conditions on everything the model can see. On this batch
+> features carry three point three percent of the total available information —
+> that was the whole prize — and the heuristic, which is the *exact* Bayes
+> posterior for its inputs, already reaches ninety-nine point four percent of its
+> own theoretical maximum.
 >
 > A model that adds nothing isn't free — it's a training step, an artifact, a version
 > to audit, and a second thing that can go wrong on the money path. The number decided,

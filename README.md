@@ -99,8 +99,9 @@ number the kernel reads. The extra recovery is ₹2.96 per decline, 95% CI
 the naive move we spend this whole project arguing against.
 
 An audit of the ICR ceiling confirmed the comparison was fair: the denominator
-already conditions on the full information set, features carry only 3.89% of the
-total available information, and the heuristic — which is the *exact* Bayes
+already conditions on the full information set, features carry only a few percent
+of the total available information (3.33% on the batch the gate was decided on,
+3.89% on the larger audit batch), and the heuristic — which is the *exact* Bayes
 posterior for its inputs — reaches 99.4% of its own information-theoretic
 maximum. Full reasoning in [`docs/GATE_LOG.md`](docs/GATE_LOG.md).
 

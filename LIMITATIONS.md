@@ -59,10 +59,13 @@ argues against.
 
 **Why a model with strictly more information scored lower**, since that is the
 obvious objection: an ICR ceiling audit (`praman icr-audit`) shows features carry
-only **3.89%** of the total available information about the cause. That is the
-entire prize. The heuristic does not *estimate* the remaining 96% — it is the
-exact Bayes posterior for its inputs and reaches 99.4% of the maximum any
-features-blind predictor could reach. LightGBM must re-learn that mapping from
+only a few percent of the total available information about the cause — **3.89%**
+on the audit batch (n=20,000, seed=101), **3.33%** on the ablation batch
+(n=5,000, seed=77). That is the entire prize. The heuristic does not *estimate*
+the remaining ~96% — it is the exact Bayes posterior for its inputs and reaches
+**99.4%** of the maximum any features-blind predictor could reach on the batch
+the gate was decided on. Ceiling-derived figures name their batch because H(C|X)
+is an average over the rows in hand, so it shifts slightly with the sample. LightGBM must re-learn that mapping from
 ~6,600 rows across 9 classes, and its estimation error there costs more than the
 4% it stands to gain. Ordinary bias–variance, stated in bits.
 

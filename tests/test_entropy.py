@@ -143,3 +143,40 @@ def test_decomposition_is_deterministic():
     b = entropy_decomposition(generate_batch(n=1200, seed=5))
     assert a.h_given_full == b.h_given_full
     assert a.features_blind_ceiling == b.features_blind_ceiling
+
+
+def test_the_ceiling_is_exactly_the_entropy_derived_ratio(decomp):
+    """The reconciliation check.
+
+    A reader with a calculator must be able to take the three entropies printed
+    in the audit table and arrive at the printed ceiling:
+
+        ceiling = (H(C) - H(C|symbol,side,region)) / (H(C) - H(C|everything))
+
+    If those ever disagree, either the ceiling is stale or a table row is
+    mislabelled -- and both are the kind of arithmetic slip that discredits a
+    section whose entire subject is measuring things properly.
+    """
+    derived = (decomp.h_marginal - decomp.h_given_symbol) / (
+        decomp.h_marginal - decomp.h_given_full
+    )
+    assert decomp.features_blind_ceiling == pytest.approx(derived, abs=1e-12)
+
+
+def test_the_ceiling_moves_with_the_batch_it_was_measured_on():
+    """Two batches give two ceilings, and neither is wrong.
+
+    H(C|X) is an average over the rows in hand, so a different sample gives a
+    slightly different conditional and therefore a slightly different ceiling.
+    This is asserted rather than assumed because quoting a ceiling from one
+    batch beside an entropy table from another is exactly how the published
+    figures failed to reconcile: 0.9667 from n=5,000 seed=77 against a table
+    from n=20,000 seed=101 whose rows imply 0.9611.
+
+    Any figure derived from a ceiling has to name the batch it came from.
+    """
+    a = entropy_decomposition(generate_batch(n=4000, seed=77))
+    b = entropy_decomposition(generate_batch(n=4000, seed=101))
+    assert a.features_blind_ceiling != b.features_blind_ceiling
+    # Same order of magnitude, though -- they are estimates of one quantity.
+    assert abs(a.features_blind_ceiling - b.features_blind_ceiling) < 0.05

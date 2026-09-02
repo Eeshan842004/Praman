@@ -139,6 +139,8 @@ uv run praman icr-audit --n 20000 --seed 101
 
 ### Result — the denominator already uses the full X
 
+Measured on the **audit batch, n=20,000, seed=101**:
+
 ```
 Entropy of the cause, conditioned on progressively more (bits):
   H(C) ................................   2.7498
@@ -151,6 +153,9 @@ Information available about the cause (bits):
   from symbol + side alone ............   2.1218
   from everything .....................   2.2077
   features add beyond symbol+side .....   0.0859   (3.89% of the total)
+
+features-blind ceiling on THIS batch    0.9611
+  = (2.7498 - 0.6280) / (2.7498 - 0.5421)
 ```
 
 `information_report` derives H(C|X) from `bayes_posterior`, which multiplies the
@@ -167,9 +172,22 @@ structurally cannot reach.
 ### What the audit did change: the heuristic was being judged against the wrong bar
 
 A predictor that never reads the features cannot reach ICR 1.0 however good it
-is, because 3.89% of the available information is in features it does not see.
-Its maximum is I(C; symbol, side) / I(C; everything) — the **features-blind
-ceiling**, now computed and printed by `praman ablation`:
+is, because a few percent of the available information is in features it does
+not see. Its maximum is I(C; symbol, side) / I(C; everything) — the
+**features-blind ceiling**, now computed and printed by `praman ablation`.
+
+**Every ceiling-derived figure must name its batch.** H(C|X) is an average over
+the rows in hand, so a different sample gives a slightly different conditional
+and therefore a slightly different ceiling. Both of the following are correct;
+mixing them is not:
+
+| Batch | H(C\|sym,side,region) | Ceiling | Heuristic ICR | Ratio |
+|---|---|---|---|---|
+| audit, n=20,000 seed=101 | 0.6280 | 0.9611 | 0.9653 | 100.4% |
+| **ablation, n=5,000 seed=77** | 0.6575 | **0.9667** | **0.9608** | **99.4%** |
+
+The Gate 1 comparison is made on the ablation batch, so that is the row the
+verdict quotes:
 
 ```
 features-blind ICR ceiling .  0.9667   (heuristic reaches 99.4% of it)
@@ -177,16 +195,26 @@ information only ML can see.  3.33% of the total  (0.0721 bits)
 ```
 
 So the heuristic's 0.9608 is not a 4-point shortfall against 1.0. It is **99.4%
-of its own information-theoretic maximum**. It is not a rule of thumb that
-happens to work; it is the exact Bayes posterior for its information set, and it
-is essentially saturating it.
+of its own information-theoretic maximum on that batch**. It is not a rule of
+thumb that happens to work; it is the exact Bayes posterior for its information
+set, and it is essentially saturating it.
+
+(The audit batch's 100.4% is above 100% by finite-sample noise — the heuristic's
+empirical cross-entropy on those particular rows lands a hair below its own
+conditional entropy. It is not evidence of anything, and it is the reason the
+verdict quotes a single batch rather than whichever number reads best.)
+
+`tests/test_entropy.py` now asserts that the ceiling equals the entropy-derived
+ratio exactly, and that two batches give two ceilings — so this cannot silently
+drift back into a mismatch.
 
 ### Why a model with strictly more information scored lower
 
 Asked directly, and it survives as a **real finding, not an artifact**:
 
-1. **The extra information is small.** Features add 0.0721–0.0859 bits — between
-   3.3% and 3.9% of the total, depending on batch. That is the entire prize.
+1. **The extra information is small.** Features add 0.0721 bits (3.33%) on the
+   ablation batch and 0.0859 bits (3.89%) on the audit batch. Either way, a few
+   percent of the total is the entire prize.
 2. **The heuristic does not estimate the expensive part, it knows it.** The
    symbol-to-cause mapping is 96% of the available information, and the heuristic
    has it exactly — it is the same emission matrix the generator sampled from.
