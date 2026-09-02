@@ -36,9 +36,7 @@ from praman.slice_runner import run_batch
 @pytest.fixture(scope="module")
 def ledger(tmp_path_factory):
     path = tmp_path_factory.mktemp("dash") / "ledger.db"
-    run_batch(
-        n=400, seed=3, ledger_path=path, client=rego_like_client(), experiment_id="dash-test"
-    )
+    run_batch(n=400, seed=3, ledger_path=path, client=rego_like_client(), experiment_id="dash-test")
     return path
 
 
