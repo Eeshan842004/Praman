@@ -84,5 +84,10 @@ echo
 # bandit. Installing the dev group is slower and, on Windows, fails
 # outright -- mypy's wheel rewrites a PE trampoline and hits a permissions
 # error. Attestation must not depend on the test toolchain installing.
-exec uv run --no-dev --quiet praman verify \
+# `python -m praman.cli`, not the `praman` console script. uv materialises a
+# console script as a .exe trampoline on Windows, and writing it can fail
+# against antivirus or a file lock -- observed once on a fresh clone, and it
+# passed on retry, which is the worst kind of failure for a judge's first
+# command. Running the module needs no trampoline at all.
+exec uv run --no-dev --quiet python -m praman.cli verify \
   --ledger "$LEDGER" --opa "$OPA" --require-replay

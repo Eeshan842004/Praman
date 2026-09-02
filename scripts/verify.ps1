@@ -70,5 +70,8 @@ Write-Host ''
 # --no-dev: a judge needs the runtime dependencies, not pytest, mypy and
 # bandit. Installing the dev group is slower and, on Windows, fails outright
 # -- mypy's wheel rewrites a PE trampoline and hits a permissions error.
-& uv run --no-dev --quiet praman verify --ledger $Ledger --opa $opa --require-replay
+# `python -m praman.cli`, not the `praman` console script: uv materialises a
+# console script as a .exe trampoline, and writing it can fail against
+# antivirus or a file lock. Running the module needs no trampoline.
+& uv run --no-dev --quiet python -m praman.cli verify --ledger $Ledger --opa $opa --require-replay
 exit $LASTEXITCODE
