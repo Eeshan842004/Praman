@@ -12,6 +12,7 @@ dependencies = [
     "joblib>=1.5.2",
     "lightgbm>=4.7.0",
     "numpy>=2.5.2",
+    "openai>=3.7.0",
     "pandas>=3.0.5",
     "prometheus-client>=0.26.0",
     "pydantic>=2.13.4",

@@ -33,7 +33,11 @@ class Settings(BaseSettings):
 
     # ── Gemini — explanation rendering ONLY. Law #1: never authorises. ───────
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-flash-lite-latest"
+    gemini_model: str = "gemini-2.5-flash"
+    # OpenAI-compatible gateway. Gemini behind that wire format means one
+    # client shape works for both, so a provider swap is a URL change.
+    gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta/openai/"
+    explain_cache_path: Path = Path("data/explanations.db")
 
     # ── OPA sidecar ──────────────────────────────────────────────────────────
     opa_url: str = "http://127.0.0.1:8181"
@@ -65,6 +69,11 @@ class Settings(BaseSettings):
     @property
     def ledger_abspath(self) -> Path:
         p = self.ledger_path
+        return p if p.is_absolute() else (REPO_ROOT / p)
+
+    @property
+    def explain_cache_abspath(self) -> Path:
+        p = self.explain_cache_path
         return p if p.is_absolute() else (REPO_ROOT / p)
 
     @property

@@ -20,6 +20,11 @@ from pathlib import Path
 from praman.attribution.ablation import run_ablation
 from praman.attribution.bayes import entropy_decomposition
 from praman.attribution.model import GATE1_MIN_AUC, train_attribution_model
+from praman.config import settings
+from praman.explain.cache import ArchetypeCache, archetype_key
+from praman.explain.from_ledger import all_summaries, deadlock_summaries, summary_at
+from praman.explain.llm import from_settings as gemini_from_settings
+from praman.explain.service import ExplanationService
 from praman.ingest.store import connect_ingest, pending
 from praman.ingest.worker import process_pending
 from praman.kernel.opa_client import PolicyClient
@@ -470,6 +475,73 @@ def _cmd_icr_audit(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _explanation_service() -> ExplanationService:
+    """Wire the service. A missing Gemini key yields a None client, and every
+    explanation still renders from the deterministic template."""
+    return ExplanationService(
+        cache=ArchetypeCache(settings.explain_cache_abspath),
+        client=gemini_from_settings(),
+    )
+
+
+def _cmd_explain(args: argparse.Namespace) -> int:
+    """Explain one recorded decision.
+
+    Reads the ledger row that was written BEFORE actuation, so the prose and the
+    attestation describe the same event. The LLM never authorises anything --
+    it is handed a decision that already happened (law #1).
+    """
+    conn = connect(args.ledger)
+    try:
+        if args.seq is not None:
+            summary = summary_at(conn, args.seq)
+            if summary is None:
+                print(f"error: no DECISION at entry {args.seq}", file=sys.stderr)
+                return EXIT_FAIL
+            summaries = [summary]
+        else:
+            summaries = (
+                deadlock_summaries(conn, limit=args.limit) or all_summaries(conn)[: args.limit]
+            )
+    finally:
+        conn.close()
+
+    service = _explanation_service()
+    for summary in summaries:
+        result = service.explain(summary)
+        print("=" * 74)
+        print(f"entry {summary.ledger_seq} . {summary.payment_id} . [{result.source}]")
+        print("=" * 74)
+        print(result.text)
+        print()
+    return EXIT_OK
+
+
+def _cmd_prewarm(args: argparse.Namespace) -> int:
+    """Fill the explanation cache before a demo.
+
+    Explanations are per-ARCHETYPE, not per-payment, so a ledger of thousands of
+    decisions costs a few dozen calls. Nothing on the golden path should ever
+    wait on an external API.
+    """
+    conn = connect(args.ledger)
+    try:
+        summaries = all_summaries(conn)
+    finally:
+        conn.close()
+
+    distinct = len({archetype_key(s) for s in summaries})
+    print(f"{len(summaries):,} decisions . {distinct} distinct archetypes")
+
+    service = _explanation_service()
+    filled = service.prewarm(summaries)
+    print(f"+ {filled} archetypes generated, cache now holds {len(service._cache)}")
+    if filled == 0 and distinct > 0:
+        print("~ nothing generated: either already warm, or no Gemini key configured")
+        print("  the demo still runs -- explanations fall back to the template")
+    return EXIT_OK
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="praman",
@@ -548,6 +620,16 @@ def build_parser() -> argparse.ArgumentParser:
     w.add_argument("--experiment-id", default="praman-v1")
     w.add_argument("--holdout-pct", type=int, default=DEFAULT_HOLDOUT_PCT)
     w.set_defaults(func=_cmd_process_webhooks)
+
+    x = sub.add_parser("explain", help="explain a recorded decision in plain English")
+    x.add_argument("--ledger", default="data/ledger.db")
+    x.add_argument("--seq", type=int, default=None, help="explain this ledger entry")
+    x.add_argument("--limit", type=int, default=1)
+    x.set_defaults(func=_cmd_explain)
+
+    pw = sub.add_parser("prewarm", help="fill the explanation cache before a demo")
+    pw.add_argument("--ledger", default="data/ledger.db")
+    pw.set_defaults(func=_cmd_prewarm)
 
     ia = sub.add_parser(
         "icr-audit",
